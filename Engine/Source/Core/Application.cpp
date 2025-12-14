@@ -114,7 +114,9 @@ void Application::Render()
     {
         m_renderDevice->BeginFrame();
 
-        // TODO: Draw calls
+        // High-level rendering commands
+        // m_renderer->DrawTriangle();  // Disable triangle
+        m_renderer->DrawCube(m_timer.GetDeltaTime());  // Spinning cube
 
         m_renderDevice->EndFrame();
     }
