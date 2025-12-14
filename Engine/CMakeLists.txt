@@ -9,7 +9,25 @@ add_executable(${PROJECT_NAME} WIN32
     ${ENGINE_SOURCES}
 )
 
+# Include directories
+target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source
+    ${CMAKE_SOURCE_DIR}/ThirdParty
+)
+
+# Link FastGLTF
+target_link_libraries(${PROJECT_NAME} PRIVATE
+    fastgltf::fastgltf
+)
+
 add_definitions(-DUNICODE -D_UNICODE)
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE
+    NOMINMAX
+    WIN32_LEAN_AND_MEAN
+    _CRT_SECURE_NO_WARNINGS
+)
+
 set_target_properties(${PROJECT_NAME} PROPERTIES
     VS_GLOBAL_CharacterSet "Unicode"
 )

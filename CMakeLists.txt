@@ -27,6 +27,24 @@ endforeach()
 # Enable folders in Visual Studio solution
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
+# Enable FetchContent
+include(FetchContent)
+
+# Fetch FastGLTF and its dependencies
+FetchContent_Declare(
+    fastgltf
+    GIT_REPOSITORY https://github.com/spnda/fastgltf.git
+    GIT_TAG v0.9.0
+)
+
+# Configure FastGLTF options (disable examples, tests, etc.)
+set(FASTGLTF_DOWNLOAD_SIMDJSON ON CACHE BOOL "" FORCE)
+set(FASTGLTF_ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+set(FASTGLTF_ENABLE_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(FASTGLTF_ENABLE_DOCS OFF CACHE BOOL "" FORCE)
+
+FetchContent_MakeAvailable(fastgltf)
+
 # Add subdirectories
 add_subdirectory(Engine)
 add_subdirectory(Game)
