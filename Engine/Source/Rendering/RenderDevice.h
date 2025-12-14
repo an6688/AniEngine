@@ -40,9 +40,6 @@ public:
     ID3D12GraphicsCommandList* GetCommandList() const { return m_commandList.Get(); }
 
 private:
-    // Triangle rendering
-    bool CreateTriangleResources();
-    void RenderTriangle();
     // Helper functions
     bool CreateDevice();
     bool CreateCommandQueue();

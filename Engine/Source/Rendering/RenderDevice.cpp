@@ -1,5 +1,4 @@
 #include "RenderDevice.h"
-#include "Shader.h"
 #include <d3dx12/d3dx12.h>
 #include <cassert>
 
@@ -12,7 +11,6 @@ RenderDevice::RenderDevice()
     , m_fenceEvent(nullptr)
     , m_width(0)
     , m_height(0)
-    , m_vertexBufferView({})
 {
     for (UINT i = 0; i < FrameBufferCount; ++i)
     {
@@ -53,10 +51,6 @@ bool RenderDevice::Initialize(HWND hwnd, int width, int height)
     m_scissorRect.top = 0;
     m_scissorRect.right = width;
     m_scissorRect.bottom = height;
-
-    // Create triangle resources
-    if (!CreateTriangleResources())
-        return false;
 
     return true;
 }
@@ -124,9 +118,6 @@ void RenderDevice::BeginFrame()
     // Set viewport and scissor rect
     m_commandList->RSSetViewports(1, &m_viewport);
     m_commandList->RSSetScissorRects(1, &m_scissorRect);
-
-    // Render our triangle
-    RenderTriangle();
 }
 
 void RenderDevice::EndFrame()
@@ -476,142 +467,4 @@ void RenderDevice::MoveToNextFrame()
 
     // Set fence value for next frame
     m_fenceValues[m_frameIndex] = currentFenceValue + 1;
-}
-
-bool RenderDevice::CreateTriangleResources()
-{
-    // Vertex data for a colored triangle
-    struct Vertex
-    {
-        float position[3];
-        float color[4];
-    };
-
-    // Simple triangle for now
-    Vertex triangleVertices[] =
-    {
-        { {  0.0f,  0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },  // Top (red)
-        { {  0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },  // Right (green)
-        { { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }   // Left (blue)
-    };
-
-    const UINT vertexBufferSize = sizeof(triangleVertices);
-
-    // Create vertex buffer
-    CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_UPLOAD);
-    CD3DX12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize);
-
-    HRESULT hr = m_device->CreateCommittedResource(
-        &heapProps,
-        D3D12_HEAP_FLAG_NONE,
-        &bufferDesc,
-        D3D12_RESOURCE_STATE_GENERIC_READ,
-        nullptr,
-        IID_PPV_ARGS(&m_vertexBuffer)
-    );
-
-    if (FAILED(hr))
-        return false;
-
-    // Copy vertex data to buffer
-    UINT8* pVertexDataBegin;
-    CD3DX12_RANGE readRange(0, 0);  // Don't read from this resource on CPU
-
-    hr = m_vertexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pVertexDataBegin));
-    if (FAILED(hr))
-        return false;
-
-    memcpy(pVertexDataBegin, triangleVertices, vertexBufferSize);
-    m_vertexBuffer->Unmap(0, nullptr);
-
-    // Initialize vertex buffer view
-    m_vertexBufferView.BufferLocation = m_vertexBuffer->GetGPUVirtualAddress();
-    m_vertexBufferView.StrideInBytes = sizeof(Vertex);
-    m_vertexBufferView.SizeInBytes = vertexBufferSize;
-
-    // Create root signature, empty for this simple shader
-    CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
-    rootSignatureDesc.Init(
-        0,
-        nullptr,
-        0,
-        nullptr,
-        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT
-    );
-
-    Microsoft::WRL::ComPtr<ID3DBlob> signature;
-    Microsoft::WRL::ComPtr<ID3DBlob> error;
-
-    hr = D3D12SerializeRootSignature(
-        &rootSignatureDesc,
-        D3D_ROOT_SIGNATURE_VERSION_1,
-        &signature,
-        &error
-    );
-
-    if (FAILED(hr))
-        return false;
-
-    hr = m_device->CreateRootSignature(
-        0,
-        signature->GetBufferPointer(),
-        signature->GetBufferSize(),
-        IID_PPV_ARGS(&m_rootSignature)
-    );
-
-    if (FAILED(hr))
-        return false;
-
-    // Compile shaders
-    Shader vertexShader;
-    Shader pixelShader;
-
-    if (!vertexShader.CompileFromFile(L"Shaders/VertexShader.hlsl", "main", "vs_5_1"))
-        return false;
-
-    if (!pixelShader.CompileFromFile(L"Shaders/PixelShader.hlsl", "main", "ps_5_1"))
-        return false;
-
-    // Define input layout
-    D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
-    {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
-    };
-
-    // Create pipeline state object
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-    psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
-    psoDesc.pRootSignature = m_rootSignature.Get();
-    psoDesc.VS = vertexShader.GetBytecode();
-    psoDesc.PS = pixelShader.GetBytecode();
-    psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-    psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-    psoDesc.SampleMask = UINT_MAX;
-    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    psoDesc.NumRenderTargets = 1;
-    psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-    psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-    psoDesc.SampleDesc.Count = 1;
-
-    hr = m_device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_pipelineState));
-
-    return SUCCEEDED(hr);
-}
-
-void RenderDevice::RenderTriangle()
-{
-    // Set pipeline state
-    m_commandList->SetPipelineState(m_pipelineState.Get());
-    m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
-
-    // Set primitive topology
-    m_commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-    // Set vertex buffer
-    m_commandList->IASetVertexBuffers(0, 1, &m_vertexBufferView);
-
-    // Draw triangle
-    m_commandList->DrawInstanced(3, 1, 0, 0);
 }

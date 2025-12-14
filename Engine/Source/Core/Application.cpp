@@ -1,10 +1,12 @@
 #include "Application.h"
 #include "Rendering/RenderDevice.h"
+#include "Rendering/Renderer.h"
 #include <sstream>
 #include <iomanip>
 
 Application::Application()
     : m_renderDevice(nullptr)
+    , m_renderer(nullptr)
     , m_isRunning(false)
     , m_titleUpdateTimer(0.0f)
 {
@@ -13,6 +15,12 @@ Application::Application()
 Application::~Application()
 {
     Shutdown();
+
+    if (m_renderer)
+    {
+        delete m_renderer;
+        m_renderer = nullptr;
+    }
 
     if (m_renderDevice)
     {
@@ -32,6 +40,13 @@ bool Application::Initialize()
     // Create and initialize render device
     m_renderDevice = new RenderDevice();
     if (!m_renderDevice->Initialize(m_window.GetHandle(), m_window.GetWidth(), m_window.GetHeight()))
+    {
+        return false;
+    }
+
+    // Create and initialize renderer
+    m_renderer = new Renderer();
+    if (!m_renderer->Initialize(m_renderDevice))
     {
         return false;
     }
@@ -70,6 +85,11 @@ void Application::Run()
 
 void Application::Shutdown()
 {
+    if (m_renderer)
+    {
+        m_renderer->Shutdown();
+    }
+
     if (m_renderDevice)
     {
         m_renderDevice->Shutdown();
@@ -90,7 +110,7 @@ void Application::Update()
 
 void Application::Render()
 {
-    if (m_renderDevice)
+    if (m_renderDevice && m_renderer)
     {
         m_renderDevice->BeginFrame();
 

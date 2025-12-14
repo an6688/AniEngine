@@ -5,9 +5,10 @@
 
 // Forward declaration to avoid including full header
 class RenderDevice;
+class Renderer;
 
 // Main application class - coordinates engine subsystems
-// DEPENDS ON: Window, Timer, RenderDevice (but does not expose them in interface)
+// DEPENDS ON: Window, Timer, RenderDevice, Renderer (but does not expose them in interface)
 class Application
 {
 public:
@@ -34,8 +35,9 @@ private:
 private:
     Window m_window;
     Timer m_timer;
-    RenderDevice* m_renderDevice;  // Heap allocated to avoid header include
+    RenderDevice* m_renderDevice;   // Heap allocated to avoid header include
+    Renderer* m_renderer;           // High-level rendering
 
     bool m_isRunning;
-    float m_titleUpdateTimer;  // Update title every 0.5 seconds
+    float m_titleUpdateTimer;       // Update title every 0.5 seconds
 };
