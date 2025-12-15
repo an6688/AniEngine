@@ -2,6 +2,7 @@
 #include "RenderDevice.h"
 #include "Shader.h"
 #include <d3dx12/d3dx12.h>
+#include <glm/gtc/type_ptr.hpp>
 
 Renderer::Renderer()
     : m_device(nullptr)
@@ -213,50 +214,50 @@ bool Renderer::CreateCubeGeometry()
 {
     struct Vertex
     {
-        DirectX::XMFLOAT3 position;
-        DirectX::XMFLOAT3 normal;
-        DirectX::XMFLOAT2 texCoord;
-        DirectX::XMFLOAT4 color;
+        glm::vec3 position;
+        glm::vec3 normal;
+        glm::vec2 texCoord;
+        glm::vec4 color;
     };
 
-    // Cube vertices - now with normals and texcoords
+    // Cube vertices
     Vertex cubeVertices[] =
     {
-        // Front face (red) - normal pointing toward camera
-        { { -0.5f, -0.5f, -0.5f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-        { { -0.5f,  0.5f, -0.5f }, { 0.0f, 0.0f, -1.0f }, { 0.0f, 1.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-        { {  0.5f,  0.5f, -0.5f }, { 0.0f, 0.0f, -1.0f }, { 1.0f, 1.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-        { {  0.5f, -0.5f, -0.5f }, { 0.0f, 0.0f, -1.0f }, { 1.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
+        // Front face (red)
+        { glm::vec3(-0.5f, -0.5f, -0.5f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec2(0.0f, 0.0f), glm::vec4(1.0f, 0.0f, 0.0f, 1.0f) },
+        { glm::vec3(-0.5f,  0.5f, -0.5f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec2(0.0f, 1.0f), glm::vec4(1.0f, 0.0f, 0.0f, 1.0f) },
+        { glm::vec3(0.5f,  0.5f, -0.5f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec2(1.0f, 1.0f), glm::vec4(1.0f, 0.0f, 0.0f, 1.0f) },
+        { glm::vec3(0.5f, -0.5f, -0.5f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec2(1.0f, 0.0f), glm::vec4(1.0f, 0.0f, 0.0f, 1.0f) },
 
         // Back face (green)
-        { { -0.5f, -0.5f,  0.5f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-        { { -0.5f,  0.5f,  0.5f }, { 0.0f, 0.0f, 1.0f }, { 0.0f, 1.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-        { {  0.5f,  0.5f,  0.5f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
-        { {  0.5f, -0.5f,  0.5f }, { 0.0f, 0.0f, 1.0f }, { 1.0f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+        { glm::vec3(-0.5f, -0.5f,  0.5f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec2(0.0f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 1.0f) },
+        { glm::vec3(-0.5f,  0.5f,  0.5f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec2(0.0f, 1.0f), glm::vec4(0.0f, 1.0f, 0.0f, 1.0f) },
+        { glm::vec3(0.5f,  0.5f,  0.5f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec2(1.0f, 1.0f), glm::vec4(0.0f, 1.0f, 0.0f, 1.0f) },
+        { glm::vec3(0.5f, -0.5f,  0.5f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec2(1.0f, 0.0f), glm::vec4(0.0f, 1.0f, 0.0f, 1.0f) },
 
         // Top face (blue)
-        { { -0.5f,  0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
-        { { -0.5f,  0.5f,  0.5f }, { 0.0f, 1.0f, 0.0f }, { 0.0f, 1.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
-        { {  0.5f,  0.5f,  0.5f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
-        { {  0.5f,  0.5f, -0.5f }, { 0.0f, 1.0f, 0.0f }, { 1.0f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
+        { glm::vec3(-0.5f,  0.5f, -0.5f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec2(0.0f, 0.0f), glm::vec4(0.0f, 0.0f, 1.0f, 1.0f) },
+        { glm::vec3(-0.5f,  0.5f,  0.5f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec2(0.0f, 1.0f), glm::vec4(0.0f, 0.0f, 1.0f, 1.0f) },
+        { glm::vec3(0.5f,  0.5f,  0.5f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec2(1.0f, 1.0f), glm::vec4(0.0f, 0.0f, 1.0f, 1.0f) },
+        { glm::vec3(0.5f,  0.5f, -0.5f), glm::vec3(0.0f, 1.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec4(0.0f, 0.0f, 1.0f, 1.0f) },
 
         // Bottom face (yellow)
-        { { -0.5f, -0.5f, -0.5f }, { 0.0f, -1.0f, 0.0f }, { 0.0f, 0.0f }, { 1.0f, 1.0f, 0.0f, 1.0f } },
-        { { -0.5f, -0.5f,  0.5f }, { 0.0f, -1.0f, 0.0f }, { 0.0f, 1.0f }, { 1.0f, 1.0f, 0.0f, 1.0f } },
-        { {  0.5f, -0.5f,  0.5f }, { 0.0f, -1.0f, 0.0f }, { 1.0f, 1.0f }, { 1.0f, 1.0f, 0.0f, 1.0f } },
-        { {  0.5f, -0.5f, -0.5f }, { 0.0f, -1.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 1.0f, 0.0f, 1.0f } },
+        { glm::vec3(-0.5f, -0.5f, -0.5f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec2(0.0f, 0.0f), glm::vec4(1.0f, 1.0f, 0.0f, 1.0f) },
+        { glm::vec3(-0.5f, -0.5f,  0.5f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec2(0.0f, 1.0f), glm::vec4(1.0f, 1.0f, 0.0f, 1.0f) },
+        { glm::vec3(0.5f, -0.5f,  0.5f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec2(1.0f, 1.0f), glm::vec4(1.0f, 1.0f, 0.0f, 1.0f) },
+        { glm::vec3(0.5f, -0.5f, -0.5f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec4(1.0f, 1.0f, 0.0f, 1.0f) },
 
         // Left face (cyan)
-        { { -0.5f, -0.5f,  0.5f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f }, { 0.0f, 1.0f, 1.0f, 1.0f } },
-        { { -0.5f,  0.5f,  0.5f }, { -1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f }, { 0.0f, 1.0f, 1.0f, 1.0f } },
-        { { -0.5f,  0.5f, -0.5f }, { -1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f }, { 0.0f, 1.0f, 1.0f, 1.0f } },
-        { { -0.5f, -0.5f, -0.5f }, { -1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f }, { 0.0f, 1.0f, 1.0f, 1.0f } },
+        { glm::vec3(-0.5f, -0.5f,  0.5f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec2(0.0f, 0.0f), glm::vec4(0.0f, 1.0f, 1.0f, 1.0f) },
+        { glm::vec3(-0.5f,  0.5f,  0.5f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec2(0.0f, 1.0f), glm::vec4(0.0f, 1.0f, 1.0f, 1.0f) },
+        { glm::vec3(-0.5f,  0.5f, -0.5f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec2(1.0f, 1.0f), glm::vec4(0.0f, 1.0f, 1.0f, 1.0f) },
+        { glm::vec3(-0.5f, -0.5f, -0.5f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec4(0.0f, 1.0f, 1.0f, 1.0f) },
 
         // Right face (magenta)
-        { {  0.5f, -0.5f,  0.5f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 0.0f }, { 1.0f, 0.0f, 1.0f, 1.0f } },
-        { {  0.5f,  0.5f,  0.5f }, { 1.0f, 0.0f, 0.0f }, { 0.0f, 1.0f }, { 1.0f, 0.0f, 1.0f, 1.0f } },
-        { {  0.5f,  0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 1.0f }, { 1.0f, 0.0f, 1.0f, 1.0f } },
-        { {  0.5f, -0.5f, -0.5f }, { 1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f }, { 1.0f, 0.0f, 1.0f, 1.0f } }
+        { glm::vec3(0.5f, -0.5f,  0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec2(0.0f, 0.0f), glm::vec4(1.0f, 0.0f, 1.0f, 1.0f) },
+        { glm::vec3(0.5f,  0.5f,  0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec2(0.0f, 1.0f), glm::vec4(1.0f, 0.0f, 1.0f, 1.0f) },
+        { glm::vec3(0.5f,  0.5f, -0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec2(1.0f, 1.0f), glm::vec4(1.0f, 0.0f, 1.0f, 1.0f) },
+        { glm::vec3(0.5f, -0.5f, -0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec4(1.0f, 0.0f, 1.0f, 1.0f) }
     };
 
     // Indices for cube (2 triangles per face, 6 faces)
@@ -409,6 +410,7 @@ bool Renderer::CreateCubePipeline()
     psoDesc.VS = vertexShader.GetBytecode();
     psoDesc.PS = pixelShader.GetBytecode();
     psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    psoDesc.RasterizerState.FrontCounterClockwise = TRUE;
     psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
     psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
     psoDesc.SampleMask = UINT_MAX;
@@ -423,11 +425,13 @@ bool Renderer::CreateCubePipeline()
     if (FAILED(hr))
         return false;
 
-    // Create constant buffer (256-byte aligned for DX12)
-    const UINT constantBufferSize = (sizeof(DirectX::XMMATRIX) + 255) & ~255;
+    const UINT constantBufferSize =
+        (sizeof(glm::mat4) + 255) & ~255;
 
     CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
-    CD3DX12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(constantBufferSize);
+    CD3DX12_RESOURCE_DESC bufferDesc =
+        CD3DX12_RESOURCE_DESC::Buffer(constantBufferSize);
+
 
     hr = m_device->GetDevice()->CreateCommittedResource(
         &uploadHeap,
@@ -450,25 +454,29 @@ bool Renderer::CreateCubePipeline()
 
 void Renderer::DrawCube(float deltaTime)
 {
-    using namespace DirectX;
-
     // Update rotation
-    m_cubeRotation += deltaTime * 1.0f;  // 1 radian per second
+    m_cubeRotation += deltaTime * 1.0f;
 
-    // Create transformation matrices
-    XMMATRIX world = XMMatrixRotationY(m_cubeRotation) * XMMatrixRotationX(m_cubeRotation * 0.5f);
+    // Create transformation matrices using GLM
+    glm::mat4 world = glm::rotate(glm::mat4(1.0f), m_cubeRotation, glm::vec3(0.0f, 1.0f, 0.0f));
+    world = glm::rotate(world, m_cubeRotation * 0.5f, glm::vec3(1.0f, 0.0f, 0.0f));
 
-    // Camera position
-    XMVECTOR eyePosition = XMVectorSet(0.0f, 0.0f, -3.0f, 0.0f);
-    XMVECTOR focusPosition = XMVectorSet(0.0f, 0.0f, 0.0f, 0.0f);
-    XMVECTOR upDirection = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-    XMMATRIX view = XMMatrixLookAtLH(eyePosition, focusPosition, upDirection);
+    // Camera
+    glm::vec3 eyePosition(0.0f, 0.0f, -3.0f);
+    glm::vec3 focusPosition(0.0f, 0.0f, 0.0f);
+    glm::vec3 upDirection(0.0f, 1.0f, 0.0f);
+    glm::mat4 view = glm::lookAt(eyePosition, focusPosition, upDirection);
 
-    // Projection (perspective)
-    XMMATRIX projection = XMMatrixPerspectiveFovLH(XM_PIDIV4, 1280.0f / 720.0f, 0.1f, 100.0f);
+    // Projection. GLM uses radians, same as DirectXMath
+    glm::mat4 projection = glm::perspective(
+        glm::radians(45.0f),  // FOV in radians
+        1280.0f / 720.0f,     // Aspect ratio
+        0.1f,                 // Near plane
+        100.0f                // Far plane
+    );
 
-    // Combined matrix
-    XMMATRIX worldViewProjection = world * view * projection;
+    // Combined matrix. GLM uses column major like HLSL, so no transpose
+    glm::mat4 worldViewProjection = projection * view * world;
 
     // Update constant buffer
     UpdateConstantBuffer(worldViewProjection);
@@ -494,10 +502,56 @@ void Renderer::DrawCube(float deltaTime)
     commandList->DrawIndexedInstanced(m_cubeIndexCount, 1, 0, 0, 0);
 }
 
-void Renderer::UpdateConstantBuffer(const DirectX::XMMATRIX& matrix)
+void Renderer::DrawMesh(Mesh* mesh, const glm::mat4& transform)
 {
-    DirectX::XMMATRIX transposed = DirectX::XMMatrixTranspose(matrix);
+    if (!mesh || !mesh->IsValid()) {
+        return;
+    }
+     
+    // Setup camera (same as cube)
+    glm::vec3 eyePosition(3.0f, 3.0f, -3.0f);
+    glm::vec3 focusPosition(0.0f, 0.0f, 0.0f);
+    glm::vec3 upDirection(0.0f, 1.0f, 0.0f);
+    glm::mat4 view = glm::lookAt(eyePosition, focusPosition, upDirection);
 
-    // Copy TRANSPOSED matrix to constant buffer
-    memcpy(m_constantBufferDataBegin, &transposed, sizeof(transposed));
+    glm::mat4 projection = glm::perspective(
+        glm::radians(45.0f),
+        1280.0f / 720.0f,
+        0.01f,
+        1000.0f
+    );
+
+    // Combined transformation
+    glm::mat4 worldViewProjection = projection * view * transform;
+
+    // Update constant buffer
+    UpdateConstantBuffer(worldViewProjection);
+
+    // Get command list
+    ID3D12GraphicsCommandList* commandList = m_device->GetCommandList();
+
+    // Set pipeline state. Use cube pipeline for now, has matrix support
+    commandList->SetPipelineState(m_cubePipelineState.Get());
+    commandList->SetGraphicsRootSignature(m_cubeRootSignature.Get());
+
+    // Set constant buffer
+    commandList->SetGraphicsRootConstantBufferView(0, m_constantBuffer->GetGPUVirtualAddress());
+
+    // Set primitive topology
+    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    // Set mesh buffers
+    auto vbv = mesh->GetVertexBufferView();
+    auto ibv = mesh->GetIndexBufferView();
+    commandList->IASetVertexBuffers(0, 1, &vbv);
+    commandList->IASetIndexBuffer(&ibv);
+
+    // Draw
+    commandList->DrawIndexedInstanced(mesh->GetIndexCount(), 1, 0, 0, 0);
+}
+
+void Renderer::UpdateConstantBuffer(const glm::mat4& matrix)
+{
+    glm::mat4 m = glm::transpose(matrix);
+    memcpy(m_constantBufferDataBegin, &m, sizeof(m));
 }

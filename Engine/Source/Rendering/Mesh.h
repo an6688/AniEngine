@@ -2,7 +2,7 @@
 
 #include <d3d12.h>
 #include <wrl/client.h>
-#include <DirectXMath.h>
+#include <glm/glm.hpp>
 #include <vector>
 #include <string>
 
@@ -12,10 +12,10 @@ class RenderDevice;
 // Vertex structure (position, normal, texcoord, color)
 struct Vertex
 {
-    DirectX::XMFLOAT3 position;
-    DirectX::XMFLOAT3 normal;
-    DirectX::XMFLOAT2 texCoord;
-    DirectX::XMFLOAT4 color;
+    glm::vec3 position;
+    glm::vec3 normal;
+    glm::vec2 texCoord;
+    glm::vec4 color;
 };
 
 // Mesh - represents a single piece of geometry

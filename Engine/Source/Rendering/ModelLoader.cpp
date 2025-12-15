@@ -70,7 +70,7 @@ bool ModelLoader::LoadGLTF(
             // Load positions - use fastgltf's native vec3 type
             fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec3>(gltf, posAccessor,
                 [&](fastgltf::math::fvec3 pos, size_t idx) {
-                    vertices[idx].position = DirectX::XMFLOAT3(pos.x(), pos.y(), pos.z());
+                    vertices[idx].position = glm::vec3(pos.x(), pos.y(), pos.z());
                 });
 
             // Load normals (if available)
@@ -80,14 +80,14 @@ bool ModelLoader::LoadGLTF(
                 const auto& normalAccessor = gltf.accessors[normalAttr->accessorIndex];
                 fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec3>(gltf, normalAccessor,
                     [&](fastgltf::math::fvec3 normal, size_t idx) {
-                        vertices[idx].normal = DirectX::XMFLOAT3(normal.x(), normal.y(), normal.z());
+                        vertices[idx].normal = glm::vec3(normal.x(), normal.y(), normal.z());
                     });
             }
             else
             {
                 // Default normal (pointing up)
                 for (auto& v : vertices)
-                    v.normal = DirectX::XMFLOAT3(0.0f, 1.0f, 0.0f);
+                    v.normal = glm::vec3(0.0f, 1.0f, 0.0f);
             }
 
             // Load texture coordinates (if available)
@@ -97,14 +97,14 @@ bool ModelLoader::LoadGLTF(
                 const auto& texCoordAccessor = gltf.accessors[texCoordAttr->accessorIndex];
                 fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec2>(gltf, texCoordAccessor,
                     [&](fastgltf::math::fvec2 uv, size_t idx) {
-                        vertices[idx].texCoord = DirectX::XMFLOAT2(uv.x(), uv.y());
+                        vertices[idx].texCoord = glm::vec2(uv.x(), uv.y());
                     });
             }
             else
             {
                 // Default UV
                 for (auto& v : vertices)
-                    v.texCoord = DirectX::XMFLOAT2(0.0f, 0.0f);
+                    v.texCoord = glm::vec2(0.0f, 0.0f);
             }
 
             // Load vertex colors (if available)
@@ -114,14 +114,14 @@ bool ModelLoader::LoadGLTF(
                 const auto& colorAccessor = gltf.accessors[colorAttr->accessorIndex];
                 fastgltf::iterateAccessorWithIndex<fastgltf::math::fvec4>(gltf, colorAccessor,
                     [&](fastgltf::math::fvec4 color, size_t idx) {
-                        vertices[idx].color = DirectX::XMFLOAT4(color.x(), color.y(), color.z(), color.w());
+                        vertices[idx].color = glm::vec4(color.x(), color.y(), color.z(), color.w());
                     });
             }
             else
             {
                 // Default color (white)
                 for (auto& v : vertices)
-                    v.color = DirectX::XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f);
+                    v.color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
             }
 
             // Load indices

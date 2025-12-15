@@ -35,7 +35,7 @@ public:
     void DrawCube(float deltaTime);
 
     // Draw a mesh with transform
-    void DrawMesh(Mesh* mesh, const DirectX::XMMATRIX& transform);
+    void DrawMesh(Mesh* mesh, const glm::mat4& transform);
 
 private:
     // Create triangle geometry
@@ -51,7 +51,7 @@ private:
     bool CreateCubePipeline();
 
     // Update constant buffer with new matrix
-    void UpdateConstantBuffer(const DirectX::XMMATRIX& matrix);
+    void UpdateConstantBuffer(const glm::mat4& matrix);
 
 private:
     RenderDevice* m_device;  // Not owned, just a reference
