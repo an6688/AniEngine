@@ -94,17 +94,14 @@ void Application::Run()
     // Main game loop
     while (m_isRunning)
     {
-        // Update input (before processing messages)
-        m_input.Update();
-
-        // Process Windows messages
         if (!m_window.ProcessMessages())
         {
             m_isRunning = false;
             break;
         }
 
-        // Update timer
+        m_input.Update();
+
         m_timer.Tick();
 
         // Update game logic
@@ -182,6 +179,29 @@ void Application::UpdateCameraInput()
     {
         m_camera->FrameBounds(glm::vec3(0.0f, 0.0f, 0.0f), 2.0f);
     }
+
+    // WASD keyboard movement (camera-space pan)
+    {
+        float deltaTime = m_timer.GetDeltaTime();
+        float moveSpeed = 300.0f; // units per second
+
+        float moveX = 0.0f;
+        float moveY = 0.0f;
+
+        if (m_input.IsKeyDown('W')) moveY += 1.0f;
+        if (m_input.IsKeyDown('S')) moveY -= 1.0f;
+        if (m_input.IsKeyDown('A')) moveX -= 1.0f;
+        if (m_input.IsKeyDown('D')) moveX += 1.0f;
+
+        if (moveX != 0.0f || moveY != 0.0f)
+        {
+            m_camera->Pan(
+                moveX * moveSpeed * deltaTime,
+                moveY * moveSpeed * deltaTime
+            );
+        }
+    }
+
 }
 
 void Application::Render()
