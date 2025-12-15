@@ -3,6 +3,8 @@
 #include "Shader.h"
 #include <d3dx12/d3dx12.h>
 #include <glm/gtc/type_ptr.hpp>
+#include "VertexFormats.h"
+#include "Mesh.h"
 
 Renderer::Renderer()
     : m_device(nullptr)
@@ -212,14 +214,6 @@ bool Renderer::CreateBasicPipeline()
 
 bool Renderer::CreateCubeGeometry()
 {
-    struct Vertex
-    {
-        glm::vec3 position;
-        glm::vec3 normal;
-        glm::vec2 texCoord;
-        glm::vec4 color;
-    };
-
     // Cube vertices
     Vertex cubeVertices[] =
     {
@@ -404,8 +398,10 @@ bool Renderer::CreateCubePipeline()
     };
 
     // Create pipeline state
+    UINT layoutCount;
+    D3D12_INPUT_ELEMENT_DESC* inputLayout = Vertex::GetInputLayout(layoutCount);
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-    psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
+    psoDesc.InputLayout = { inputLayout, layoutCount };
     psoDesc.pRootSignature = m_cubeRootSignature.Get();
     psoDesc.VS = vertexShader.GetBytecode();
     psoDesc.PS = pixelShader.GetBytecode();

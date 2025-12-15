@@ -1,14 +1,18 @@
 #include "Application.h"
 #include "Rendering/RenderDevice.h"
 #include "Rendering/Renderer.h"
+#include "Rendering/Mesh.h"
+#include "Rendering/ModelLoader.h"
 #include <sstream>
 #include <iomanip>
+#include <glm/gtc/matrix_transform.hpp>
 
 Application::Application()
     : m_renderDevice(nullptr)
     , m_renderer(nullptr)
     , m_isRunning(false)
     , m_titleUpdateTimer(0.0f)
+    , m_modelRotation(0.0f)
 {
 }
 
@@ -49,6 +53,14 @@ bool Application::Initialize()
     if (!m_renderer->Initialize(m_renderDevice))
     {
         return false;
+    }
+
+    // Load test model (avocado)
+    const char* modelPath = "E:/repos/glTF-Sample-Assets-main/glTF-Sample-Assets-main/Models/Avocado/glTF/Avocado.gltf";
+    if (!LoadTestModel(modelPath))
+    {
+        MessageBoxA(nullptr, "Failed to load avocado model! Check the path.", "Warning", MB_OK | MB_ICONWARNING);
+        // Continue anyway - will just show nothing
     }
 
     // Start timer
@@ -114,9 +126,25 @@ void Application::Render()
     {
         m_renderDevice->BeginFrame();
 
-        // High-level rendering commands
-        // m_renderer->DrawTriangle();  // Disable triangle
-        m_renderer->DrawCube(m_timer.GetDeltaTime());  // Spinning cube
+        // Render all loaded meshes
+        if (!m_loadedMeshes.empty())
+        {
+            // Create transform with scale adjustment
+            glm::mat4 transform = glm::mat4(1.0f);
+            transform = glm::scale(transform, glm::vec3(30.0f));
+            transform = glm::rotate(transform, m_modelRotation, glm::vec3(0.0f, 1.0f, 0.0f));
+
+            // Draw each mesh
+            for (auto& mesh : m_loadedMeshes)
+            {
+                m_renderer->DrawMesh(mesh.get(), transform);
+            }
+        }
+        else
+        {
+            // Fallback: draw the cube if no model loaded
+            m_renderer->DrawCube(m_timer.GetDeltaTime());
+        }
 
         m_renderDevice->EndFrame();
     }
@@ -131,9 +159,22 @@ void Application::UpdateWindowTitle()
     {
         std::wostringstream title;
         title << L"AniEngine | FPS: " << std::fixed << std::setprecision(1)
-            << m_timer.GetFPS();
+            << m_timer.GetFPS()
+            << L" | Meshes: " << m_loadedMeshes.size();
 
         m_window.SetTitle(title.str().c_str());
         m_titleUpdateTimer = 0.0f;
     }
+}
+
+bool Application::LoadTestModel(const char* filepath)
+{
+    ModelLoader loader;
+
+    if (!loader.LoadGLTF(filepath, m_renderDevice, m_loadedMeshes))
+    {
+        return false;
+    }
+
+    return !m_loadedMeshes.empty();
 }

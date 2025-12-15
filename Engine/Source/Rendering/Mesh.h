@@ -1,22 +1,13 @@
 #pragma once
 
+#include "VertexFormats.h"
 #include <d3d12.h>
 #include <wrl/client.h>
-#include <glm/glm.hpp>
 #include <vector>
 #include <string>
 
 // Forward declaration
 class RenderDevice;
-
-// Vertex structure (position, normal, texcoord, color)
-struct Vertex
-{
-    glm::vec3 position;
-    glm::vec3 normal;
-    glm::vec2 texCoord;
-    glm::vec4 color;
-};
 
 // Mesh - represents a single piece of geometry
 // DEPENDS ON: RenderDevice (for creating GPU buffers)

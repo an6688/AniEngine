@@ -17,30 +17,34 @@ bool ModelLoader::LoadGLTF(
     RenderDevice* device,
     std::vector<std::unique_ptr<Mesh>>& outMeshes)
 {
-    if (!device)
+    if (!device) {
         return false;
+    }   
 
     // Check if file exists
-    if (!std::filesystem::exists(filepath))
+    if (!std::filesystem::exists(filepath)) {
         return false;
-
+    }
+        
     // Create FastGLTF parser
     fastgltf::Parser parser;
 
     // Load GLTF file
     auto gltfFile = fastgltf::MappedGltfFile::FromPath(filepath);
-    if (!gltfFile)
+    if (!gltfFile) {
         return false;
-
+    }
+        
     // Parse GLTF
     auto asset = parser.loadGltf(
         gltfFile.get(),
         std::filesystem::path(filepath).parent_path(),
-        fastgltf::Options::None
+        fastgltf::Options::LoadExternalBuffers
     );
 
-    if (asset.error() != fastgltf::Error::None)
+    if (asset.error() != fastgltf::Error::None) {
         return false;
+    }   
 
     auto& gltf = asset.get();
 
