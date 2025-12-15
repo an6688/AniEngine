@@ -15,11 +15,6 @@ target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/ThirdParty
 )
 
-# Link FastGLTF
-target_link_libraries(${PROJECT_NAME} PRIVATE
-    fastgltf::fastgltf
-)
-
 add_definitions(-DUNICODE -D_UNICODE)
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
@@ -40,6 +35,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 
 # Link DirectX 12 libraries
 target_link_libraries(${PROJECT_NAME} PRIVATE
+    fastgltf::fastgltf
+    glm::glm
     d3d12.lib
     dxgi.lib
     d3dcompiler.lib
