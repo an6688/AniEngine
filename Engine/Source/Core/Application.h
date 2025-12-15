@@ -2,6 +2,7 @@
 
 #include "Window.h"
 #include "Timer.h"
+#include "Input.h"
 #include <vector>
 #include <memory>
 
@@ -9,6 +10,7 @@
 class RenderDevice;
 class Renderer;
 class Mesh;
+class Camera;
 
 // Main application class - coordinates engine subsystems
 // DEPENDS ON: Window, Timer, RenderDevice, Renderer (but does not expose them in interface)
@@ -38,11 +40,16 @@ private:
     // Load a model for testing
     bool LoadTestModel(const char* filepath);
 
+    // Handle camera input
+    void UpdateCameraInput();
+
 private:
     Window m_window;
     Timer m_timer;
+    Input m_input;
     RenderDevice* m_renderDevice;  // Heap allocated to avoid header include
     Renderer* m_renderer;          // High-level rendering
+    Camera* m_camera;              // Camera system
 
     // Loaded meshes (owned by Application, not Renderer)
     std::vector<std::unique_ptr<Mesh>> m_loadedMeshes;

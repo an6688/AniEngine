@@ -5,6 +5,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include "VertexFormats.h"
 #include "Mesh.h"
+#include "Camera.h"
 
 Renderer::Renderer()
     : m_device(nullptr)
@@ -498,24 +499,14 @@ void Renderer::DrawCube(float deltaTime)
     commandList->DrawIndexedInstanced(m_cubeIndexCount, 1, 0, 0, 0);
 }
 
-void Renderer::DrawMesh(Mesh* mesh, const glm::mat4& transform)
+void Renderer::DrawMesh(Mesh* mesh, const glm::mat4& transform, Camera* camera)
 {
-    if (!mesh || !mesh->IsValid()) {
+    if (!mesh || !mesh->IsValid() || !camera)
         return;
-    }
-     
-    // Setup camera (same as cube)
-    glm::vec3 eyePosition(3.0f, 3.0f, -3.0f);
-    glm::vec3 focusPosition(0.0f, 0.0f, 0.0f);
-    glm::vec3 upDirection(0.0f, 1.0f, 0.0f);
-    glm::mat4 view = glm::lookAt(eyePosition, focusPosition, upDirection);
 
-    glm::mat4 projection = glm::perspective(
-        glm::radians(45.0f),
-        1280.0f / 720.0f,
-        0.01f,
-        1000.0f
-    );
+    // Get matrices from camera
+    glm::mat4 view = camera->GetViewMatrix();
+    glm::mat4 projection = camera->GetProjectionMatrix();
 
     // Combined transformation
     glm::mat4 worldViewProjection = projection * view * transform;
@@ -526,7 +517,7 @@ void Renderer::DrawMesh(Mesh* mesh, const glm::mat4& transform)
     // Get command list
     ID3D12GraphicsCommandList* commandList = m_device->GetCommandList();
 
-    // Set pipeline state. Use cube pipeline for now, has matrix support
+    // Set pipeline state
     commandList->SetPipelineState(m_cubePipelineState.Get());
     commandList->SetGraphicsRootSignature(m_cubeRootSignature.Get());
 

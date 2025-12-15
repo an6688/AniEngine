@@ -1,10 +1,12 @@
 #include "Window.h"
+#include "Input.h"
 
 Window::Window()
     : m_hwnd(nullptr)
     , m_width(0)
     , m_height(0)
     , m_isActive(true)
+    , m_input(nullptr)
 {
 }
 
@@ -131,6 +133,12 @@ LRESULT CALLBACK Window::WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
 LRESULT Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    // Forward input messages to input handler
+    if (m_input)
+    {
+        m_input->ProcessMessage(msg, wParam, lParam);
+    }
+
     switch (msg)
     {
     case WM_DESTROY:

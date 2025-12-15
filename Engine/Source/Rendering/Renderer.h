@@ -7,6 +7,8 @@
 
 // Forward declarations
 class RenderDevice;
+class Mesh;
+class Camera;
 
 // High-level renderer - manages renderables and draw calls
 // DEPENDS ON: RenderDevice (passed as reference, not owned)
@@ -34,8 +36,8 @@ public:
     // Draw a spinning cube
     void DrawCube(float deltaTime);
 
-    // Draw a mesh with transform
-    void DrawMesh(Mesh* mesh, const glm::mat4& transform);
+    // Draw a mesh with transform and camera
+    void DrawMesh(Mesh* mesh, const glm::mat4& transform, Camera* camera);
 
 private:
     // Create triangle geometry

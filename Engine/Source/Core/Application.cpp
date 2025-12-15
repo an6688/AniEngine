@@ -3,6 +3,7 @@
 #include "Rendering/Renderer.h"
 #include "Rendering/Mesh.h"
 #include "Rendering/ModelLoader.h"
+#include "Rendering/Camera.h"
 #include <sstream>
 #include <iomanip>
 #include <glm/gtc/matrix_transform.hpp>
@@ -10,6 +11,7 @@
 Application::Application()
     : m_renderDevice(nullptr)
     , m_renderer(nullptr)
+    , m_camera(nullptr)
     , m_isRunning(false)
     , m_titleUpdateTimer(0.0f)
     , m_modelRotation(0.0f)
@@ -19,6 +21,12 @@ Application::Application()
 Application::~Application()
 {
     Shutdown();
+
+    if (m_camera)
+    {
+        delete m_camera;
+        m_camera = nullptr;
+    }
 
     if (m_renderer)
     {
@@ -41,6 +49,10 @@ bool Application::Initialize()
         return false;
     }
 
+    // Connect input to window
+    m_input.Initialize();
+    m_window.SetInputHandler(&m_input);
+
     // Create and initialize render device
     m_renderDevice = new RenderDevice();
     if (!m_renderDevice->Initialize(m_window.GetHandle(), m_window.GetWidth(), m_window.GetHeight()))
@@ -54,6 +66,11 @@ bool Application::Initialize()
     {
         return false;
     }
+
+    // Create camera
+    m_camera = new Camera();
+    m_camera->Initialize(1280.0f / 720.0f);
+    m_camera->FrameBounds(glm::vec3(0.0f, 0.0f, 0.0f), 2.0f);  // Default framing
 
     // Load test model (avocado)
     const char* modelPath = "E:/repos/glTF-Sample-Assets-main/glTF-Sample-Assets-main/Models/Avocado/glTF/Avocado.gltf";
@@ -77,6 +94,9 @@ void Application::Run()
     // Main game loop
     while (m_isRunning)
     {
+        // Update input (before processing messages)
+        m_input.Update();
+
         // Process Windows messages
         if (!m_window.ProcessMessages())
         {
@@ -114,30 +134,74 @@ void Application::Update()
 {
     float deltaTime = m_timer.GetDeltaTime();
 
+    // Handle camera input
+    UpdateCameraInput();
+
+    // Update camera
+    m_camera->Update(deltaTime);
+
+    // Rotate the model slowly, can disable with camera control
+    // m_modelRotation += deltaTime * 0.2f;
+
     // Update window title with FPS
     UpdateWindowTitle();
+}
 
-    // TODO: Update actual game logic here
+void Application::UpdateCameraInput()
+{
+    // Left mouse button - orbit
+    if (m_input.IsMouseButtonDown(0))  // Left mouse
+    {
+        float deltaX = static_cast<float>(m_input.GetMouseDeltaX());
+        float deltaY = static_cast<float>(m_input.GetMouseDeltaY());
+
+        m_camera->Orbit(deltaX * 0.01f, -deltaY * 0.01f);
+    }
+
+    // Middle mouse or Shift+Left - pan
+    bool panMode = m_input.IsMouseButtonDown(2) ||  // Middle mouse
+        (m_input.IsMouseButtonDown(0) && m_input.IsKeyDown(VK_SHIFT));  // Shift+Left
+
+    if (panMode)
+    {
+        float deltaX = static_cast<float>(-m_input.GetMouseDeltaX());
+        float deltaY = static_cast<float>(m_input.GetMouseDeltaY());
+
+        m_camera->Pan(deltaX, deltaY);
+    }
+
+    // Mouse wheel - zoom
+    int wheelDelta = m_input.GetMouseWheelDelta();
+    if (wheelDelta != 0)
+    {
+        m_camera->Zoom(static_cast<float>(-wheelDelta) * 0.5f);
+    }
+
+    // F key - frame model
+    if (m_input.IsKeyPressed('F'))
+    {
+        m_camera->FrameBounds(glm::vec3(0.0f, 0.0f, 0.0f), 2.0f);
+    }
 }
 
 void Application::Render()
 {
-    if (m_renderDevice && m_renderer)
+    if (m_renderDevice && m_renderer && m_camera)
     {
         m_renderDevice->BeginFrame();
 
         // Render all loaded meshes
         if (!m_loadedMeshes.empty())
         {
-            // Create transform with scale adjustment
+            // Create transform
             glm::mat4 transform = glm::mat4(1.0f);
             transform = glm::scale(transform, glm::vec3(30.0f));
             transform = glm::rotate(transform, m_modelRotation, glm::vec3(0.0f, 1.0f, 0.0f));
 
-            // Draw each mesh
+            // Draw each mesh with camera
             for (auto& mesh : m_loadedMeshes)
             {
-                m_renderer->DrawMesh(mesh.get(), transform);
+                m_renderer->DrawMesh(mesh.get(), transform, m_camera);
             }
         }
         else

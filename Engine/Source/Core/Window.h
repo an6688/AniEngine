@@ -3,6 +3,9 @@
 #include <windows.h>
 #include <string>
 
+// Forward declaration
+class Input;
+
 // Win32 window wrapper
 // DEPENDS ON: Nothing, just Win32 API
 class Window
@@ -22,6 +25,9 @@ public:
     bool ProcessMessages();
 
     // Get window handle for DirectX initialization
+    void SetInputHandler(Input* input) { m_input = input; }
+
+    // Get window handle
     HWND GetHandle() const { return m_hwnd; }
 
     // Get window dimensions
@@ -47,4 +53,5 @@ private:
     int m_height;
     bool m_isActive;
     std::wstring m_title;
+    Input* m_input;
 };
