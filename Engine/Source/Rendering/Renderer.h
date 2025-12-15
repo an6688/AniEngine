@@ -3,6 +3,7 @@
 #include <d3d12.h>
 #include <wrl/client.h>
 #include <DirectXMath.h>
+#include "Mesh.h"
 
 // Forward declarations
 class RenderDevice;
@@ -32,6 +33,9 @@ public:
 
     // Draw a spinning cube
     void DrawCube(float deltaTime);
+
+    // Draw a mesh with transform
+    void DrawMesh(Mesh* mesh, const DirectX::XMMATRIX& transform);
 
 private:
     // Create triangle geometry
