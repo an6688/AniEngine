@@ -19,6 +19,7 @@ public:
     // Camera controls
     void Orbit(float deltaYaw, float deltaPitch);  // Rotate around target
     void Pan(float deltaX, float deltaY);          // Move target point
+    void PanForward(float amount);
     void Zoom(float delta);                        // Move closer/farther
 
     // Set target point (what the camera looks at)

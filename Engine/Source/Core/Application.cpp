@@ -183,23 +183,13 @@ void Application::UpdateCameraInput()
     // WASD keyboard movement (camera-space pan)
     {
         float deltaTime = m_timer.GetDeltaTime();
-        float moveSpeed = 300.0f; // units per second
-
-        float moveX = 0.0f;
-        float moveY = 0.0f;
-
-        if (m_input.IsKeyDown('W')) moveY += 1.0f;
-        if (m_input.IsKeyDown('S')) moveY -= 1.0f;
-        if (m_input.IsKeyDown('A')) moveX -= 1.0f;
-        if (m_input.IsKeyDown('D')) moveX += 1.0f;
-
-        if (moveX != 0.0f || moveY != 0.0f)
-        {
-            m_camera->Pan(
-                moveX * moveSpeed * deltaTime,
-                moveY * moveSpeed * deltaTime
-            );
-        }
+        float moveSpeed = 30.0f; // units per second
+        if (m_input.IsKeyDown('A')) m_camera->Pan(-moveSpeed, 0.0f);
+        if (m_input.IsKeyDown('D')) m_camera->Pan(moveSpeed, 0.0f);
+        if (m_input.IsKeyDown('W')) m_camera->PanForward(moveSpeed);
+        if (m_input.IsKeyDown('S')) m_camera->PanForward(-moveSpeed);
+        if (m_input.IsKeyDown('Q')) m_camera->Pan(0.0f, -moveSpeed);
+        if (m_input.IsKeyDown('E')) m_camera->Pan(0.0f, moveSpeed);
     }
 
 }

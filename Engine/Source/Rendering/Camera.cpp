@@ -1,6 +1,7 @@
 #include "Camera.h"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
+#include <glm/glm.hpp>
 
 Camera::Camera()
     : m_yaw(0.0f)
@@ -78,6 +79,21 @@ void Camera::Pan(float deltaX, float deltaY)
     m_target += right * deltaX * panScale;
     m_target += up * deltaY * panScale;
 
+    m_viewDirty = true;
+}
+
+void Camera::PanForward(float amount)
+{
+    glm::vec3 position = GetPosition();
+    glm::vec3 forward = glm::normalize(m_target - position);
+
+    // Constrain to ground plane
+    forward.y = 0.0f;
+    if (glm::dot(forward, forward) < 0.0001f) return;
+
+    forward = glm::normalize(forward);
+
+    m_target += forward * amount;
     m_viewDirty = true;
 }
 
