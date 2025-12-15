@@ -79,55 +79,63 @@ void Input::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         break;
 
     case WM_KEYDOWN:
-        if (wParam < 256)
+        if (wParam < 256) {
             m_keys[wParam] = true;
+        }  
         break;
 
     case WM_KEYUP:
-        if (wParam < 256)
+        if (wParam < 256) {
             m_keys[wParam] = false;
+        }
         break;
     }
 }
 
 bool Input::IsMouseButtonDown(int button) const
 {
-    if (button < 0 || button >= 3)
+    if (button < 0 || button >= 3) {
         return false;
+    }   
     return m_mouseButtons[button];
 }
 
 bool Input::IsMouseButtonPressed(int button) const
 {
-    if (button < 0 || button >= 3)
+    if (button < 0 || button >= 3) {
         return false;
+    }   
     return m_mouseButtons[button] && !m_mouseButtonsPrev[button];
 }
 
 bool Input::IsMouseButtonReleased(int button) const
 {
-    if (button < 0 || button >= 3)
+    if (button < 0 || button >= 3) {
         return false;
+    }   
     return !m_mouseButtons[button] && m_mouseButtonsPrev[button];
 }
 
 bool Input::IsKeyDown(int vkCode) const
 {
-    if (vkCode < 0 || vkCode >= 256)
+    if (vkCode < 0 || vkCode >= 256) {
         return false;
+    }
     return m_keys[vkCode];
 }
 
 bool Input::IsKeyPressed(int vkCode) const
 {
-    if (vkCode < 0 || vkCode >= 256)
+    if (vkCode < 0 || vkCode >= 256) {
         return false;
+    }
     return m_keys[vkCode] && !m_keysPrev[vkCode];
 }
 
 bool Input::IsKeyReleased(int vkCode) const
 {
-    if (vkCode < 0 || vkCode >= 256)
+    if (vkCode < 0 || vkCode >= 256) {
         return false;
+    }   
     return !m_keys[vkCode] && m_keysPrev[vkCode];
 }
