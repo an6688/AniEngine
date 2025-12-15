@@ -74,11 +74,8 @@ void Camera::Pan(float deltaX, float deltaY)
     glm::vec3 right = glm::normalize(glm::cross(forward, glm::vec3(0.0f, 1.0f, 0.0f)));
     glm::vec3 up = glm::cross(right, forward);
 
-    // Move target (and camera follows since distance stays same)
-    float panScale = m_distance * m_panSpeed * 0.001f;
-    m_target += right * deltaX * panScale;
-    m_target += up * deltaY * panScale;
-
+    m_target += right * deltaX;
+    m_target += up * deltaY;
     m_viewDirty = true;
 }
 
