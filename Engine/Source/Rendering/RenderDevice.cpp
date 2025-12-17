@@ -11,6 +11,8 @@ RenderDevice::RenderDevice()
     , m_fenceEvent(nullptr)
     , m_width(0)
     , m_height(0)
+    , m_srvDescriptorSize(0)
+    , m_nextSRVIndex(0)
 {
     for (UINT i = 0; i < FrameBufferCount; ++i)
     {
@@ -37,6 +39,7 @@ bool RenderDevice::Initialize(HWND hwnd, int width, int height)
     if (!CreateDepthStencil(width, height)) return false;
     if (!CreateCommandAllocatorsAndList()) return false;
     if (!CreateFence()) return false;
+    if (!CreateSRVHeap()) return false;
 
     // Setup viewport
     m_viewport.TopLeftX = 0.0f;
@@ -214,6 +217,58 @@ void RenderDevice::EnableDebugLayer()
         debugController->EnableDebugLayer();
     }
 #endif
+}
+
+bool RenderDevice::CreateSRVHeap()
+{
+    D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
+    heapDesc.NumDescriptors = MaxSRVDescriptors;
+    heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+
+    HRESULT hr = m_device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&m_srvHeap));
+    if (FAILED(hr)) return false;
+
+    m_srvHeap->SetName(L"Main SRV Heap");
+    m_srvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+    m_nextSRVIndex = 0;
+
+    return true;
+}
+
+D3D12_CPU_DESCRIPTOR_HANDLE RenderDevice::AllocateSRV(uint32_t& outIndex)
+{
+    if (m_nextSRVIndex >= MaxSRVDescriptors)
+    {
+        outIndex = UINT32_MAX;
+        return D3D12_CPU_DESCRIPTOR_HANDLE{};
+    }
+
+    outIndex = m_nextSRVIndex++;
+
+    CD3DX12_CPU_DESCRIPTOR_HANDLE cpuHandle(
+        m_srvHeap->GetCPUDescriptorHandleForHeapStart(),
+        static_cast<INT>(outIndex),
+        m_srvDescriptorSize
+    );
+
+    return cpuHandle;
+}
+
+D3D12_GPU_DESCRIPTOR_HANDLE RenderDevice::GetSRVGPUHandle(uint32_t index) const
+{
+    if (!m_srvHeap || index >= MaxSRVDescriptors)
+    {
+        return D3D12_GPU_DESCRIPTOR_HANDLE{};
+    }
+
+    CD3DX12_GPU_DESCRIPTOR_HANDLE gpuHandle(
+        m_srvHeap->GetGPUDescriptorHandleForHeapStart(),
+        static_cast<INT>(index),
+        m_srvDescriptorSize
+    );
+
+    return gpuHandle;
 }
 
 bool RenderDevice::CreateDevice()

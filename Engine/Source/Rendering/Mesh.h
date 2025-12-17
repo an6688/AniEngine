@@ -5,6 +5,10 @@
 #include <wrl/client.h>
 #include <vector>
 #include <string>
+#include <memory>
+#include <glm/glm.hpp>
+
+struct Material;
 
 // Forward declaration
 class RenderDevice;
@@ -40,7 +44,11 @@ public:
     // Optional: Get CPU-side data (for physics, etc.)
     const std::vector<Vertex>& GetVertices() const { return m_vertices; }
     const std::vector<uint32_t>& GetIndices() const { return m_indices; }
+    void SetMaterial(std::shared_ptr<Material> material) { m_material = material; }
+    std::shared_ptr<Material> GetMaterial() const { return m_material; }
 
+    void SetTransform(const glm::mat4& transform) { m_transform = transform; }
+    const glm::mat4& GetTransform() const { return m_transform; }
 private:
     // GPU resources
     Microsoft::WRL::ComPtr<ID3D12Resource> m_vertexBuffer;
@@ -54,4 +62,6 @@ private:
     // CPU-side data (optional, for later use)
     std::vector<Vertex> m_vertices;
     std::vector<uint32_t> m_indices;
+    std::shared_ptr<Material> m_material;
+    glm::mat4 m_transform = glm::mat4(1.0f);
 };

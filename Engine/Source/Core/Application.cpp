@@ -4,14 +4,18 @@
 #include "Rendering/Mesh.h"
 #include "Rendering/ModelLoader.h"
 #include "Rendering/Camera.h"
+#include "Rendering/Texture.h"
 #include <sstream>
 #include <iomanip>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/glm.hpp>
+
 
 Application::Application()
     : m_renderDevice(nullptr)
     , m_renderer(nullptr)
     , m_camera(nullptr)
+    , m_textureManager(nullptr)
     , m_isRunning(false)
     , m_titleUpdateTimer(0.0f)
     , m_modelRotation(0.0f)
@@ -32,6 +36,13 @@ Application::~Application()
     {
         delete m_renderer;
         m_renderer = nullptr;
+    }
+
+    if (m_textureManager)
+    {
+        m_textureManager->Shutdown();
+        delete m_textureManager;
+        m_textureManager = nullptr;
     }
 
     if (m_renderDevice)
@@ -67,6 +78,13 @@ bool Application::Initialize()
         return false;
     }
 
+    // Create texture manager
+    m_textureManager = new TextureManager();
+    if (!m_textureManager->Initialize(m_renderDevice))
+    {
+        return false;
+    }
+
     // Create camera
     m_camera = new Camera();
     m_camera->Initialize(1280.0f / 720.0f);
@@ -74,10 +92,23 @@ bool Application::Initialize()
 
     // Load test model (avocado)
     const char* modelPath = "E:/repos/glTF-Sample-Assets-main/glTF-Sample-Assets-main/Models/Avocado/glTF/Avocado.gltf";
-    if (!LoadTestModel(modelPath))
+
+    ModelLoader loader;
+    loader.SetTextureManager(m_textureManager);
+
+    if (!loader.LoadGLTF(modelPath, m_renderDevice, m_loadedModel))
     {
         MessageBoxA(nullptr, "Failed to load avocado model! Check the path.", "Warning", MB_OK | MB_ICONWARNING);
-        // Continue anyway - will just show nothing
+    }
+    else
+    {
+        // Debug: print how many textures loaded
+        char msg[256];
+        sprintf_s(msg, "Loaded %zu meshes, %zu materials, %zu textures\n",
+            m_loadedModel.meshes.size(),
+            m_loadedModel.materials.size(),
+            m_loadedModel.textures.size());
+        OutputDebugStringA(msg);
     }
 
     // Start timer
@@ -137,10 +168,9 @@ void Application::Update()
     // Update camera
     m_camera->Update(deltaTime);
 
-    // Rotate the model slowly, can disable with camera control
+    // Uncomment to rotate model:
     // m_modelRotation += deltaTime * 0.2f;
 
-    // Update window title with FPS
     UpdateWindowTitle();
 }
 
@@ -163,7 +193,6 @@ void Application::UpdateCameraInput()
     {
         float deltaX = static_cast<float>(-m_input.GetMouseDeltaX());
         float deltaY = static_cast<float>(m_input.GetMouseDeltaY());
-
         m_camera->Pan(deltaX, deltaY);
     }
 
@@ -180,7 +209,7 @@ void Application::UpdateCameraInput()
         m_camera->FrameBounds(glm::vec3(0.0f, 0.0f, 0.0f), 2.0f);
     }
 
-    // WASD keyboard movement (camera-space pan)
+    // WASD keyboard movement
     {
         float deltaTime = m_timer.GetDeltaTime();
         float moveAmount = 30.0f * deltaTime;
@@ -191,42 +220,36 @@ void Application::UpdateCameraInput()
         if (m_input.IsKeyDown('W')) m_camera->PanForward(moveAmount);
         if (m_input.IsKeyDown('S')) m_camera->PanForward(-moveAmount);
     }
-
 }
 
 void Application::Render()
 {
-    if (m_renderDevice && m_renderer && m_camera)
+    m_renderDevice->BeginFrame();
+
+    // Create transform for the model
+    glm::mat4 transform = glm::mat4(1.0f);
+    transform = glm::scale(transform, glm::vec3(30.0f));
+    transform = glm::rotate(transform, m_modelRotation, glm::vec3(0.0f, 1.0f, 0.0f));
+
+    // Render loaded model
+    if (!m_loadedModel.meshes.empty())
     {
-        m_renderDevice->BeginFrame();
-
-        // Render all loaded meshes
-        if (!m_loadedMeshes.empty())
+        for (const auto& mesh : m_loadedModel.meshes)
         {
-            // Create transform
-            glm::mat4 transform = glm::mat4(1.0f);
-            transform = glm::scale(transform, glm::vec3(30.0f));
-            transform = glm::rotate(transform, m_modelRotation, glm::vec3(0.0f, 1.0f, 0.0f));
-
-            // Draw each mesh with camera
-            for (auto& mesh : m_loadedMeshes)
-            {
-                m_renderer->DrawMesh(mesh.get(), transform, m_camera);
-            }
+            m_renderer->DrawMesh(mesh.get(), transform, m_camera);
         }
-        else
-        {
-            // Fallback: draw the cube if no model loaded
-            m_renderer->DrawCube(m_timer.GetDeltaTime());
-        }
-
-        m_renderDevice->EndFrame();
     }
+    else
+    {
+        // Fallback: draw cube if no model loaded
+        m_renderer->DrawCube(m_timer.GetDeltaTime());
+    }
+
+    m_renderDevice->EndFrame();
 }
 
 void Application::UpdateWindowTitle()
 {
-    // Update title every 0.5 seconds to avoid flickering
     m_titleUpdateTimer += m_timer.GetDeltaTime();
 
     if (m_titleUpdateTimer >= 0.5f)
@@ -234,7 +257,8 @@ void Application::UpdateWindowTitle()
         std::wostringstream title;
         title << L"AniEngine | FPS: " << std::fixed << std::setprecision(1)
             << m_timer.GetFPS()
-            << L" | Meshes: " << m_loadedMeshes.size();
+            << L" | Meshes: " << m_loadedModel.meshes.size()
+            << L" | Textures: " << m_loadedModel.textures.size();
 
         m_window.SetTitle(title.str().c_str());
         m_titleUpdateTimer = 0.0f;

@@ -40,6 +40,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     d3d12.lib
     dxgi.lib
     d3dcompiler.lib
+    dxguid.lib
 )
 
 # Compiler options

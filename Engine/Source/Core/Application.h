@@ -5,15 +5,15 @@
 #include "Input.h"
 #include <vector>
 #include <memory>
+#include "Rendering/TextureManager.h"
+#include "Rendering/Material.h"
+#include "Rendering/ModelLoader.h"
 
-// Forward declarations to avoid including full headers
 class RenderDevice;
 class Renderer;
 class Mesh;
 class Camera;
 
-// Main application class - coordinates engine subsystems
-// DEPENDS ON: Window, Timer, RenderDevice, Renderer (but does not expose them in interface)
 class Application
 {
 public:
@@ -51,7 +51,11 @@ private:
     Renderer* m_renderer;          // High-level rendering
     Camera* m_camera;              // Camera system
 
-    // Loaded meshes (owned by Application, not Renderer)
+    // Texture and model management
+    TextureManager* m_textureManager;
+    LoadedModel m_loadedModel;
+
+    // Keep for backwards compatibility with LoadTestModel
     std::vector<std::unique_ptr<Mesh>> m_loadedMeshes;
     float m_modelRotation;  // For spinning the model
 

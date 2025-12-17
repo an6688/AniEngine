@@ -1,36 +1,41 @@
 #pragma once
 
-#include "Mesh.h"
-#include <vector>
 #include <string>
+#include <vector>
 #include <memory>
+#include <unordered_map>
+#include <cstdint>
 
-// Forward declarations
 class RenderDevice;
+class Mesh;
+class Texture;
+class TextureManager;
+struct Material;
 
-// Model loader - loads GLTF files and creates Mesh objects
-// DEPENDS ON: FastGLTF, RenderDevice
+// Helper struct for loaded model data
+struct LoadedModel
+{
+    std::vector<std::unique_ptr<Mesh>> meshes;
+    std::vector<std::shared_ptr<Material>> materials;
+    std::vector<std::shared_ptr<Texture>> textures;
+};
+
 class ModelLoader
 {
 public:
     ModelLoader();
     ~ModelLoader();
 
-    // Load a GLTF file and create meshes
-    // Returns vector of meshes (one per primitive in the GLTF)
-    bool LoadGLTF(
-        const std::string& filepath,
-        RenderDevice* device,
-        std::vector<std::unique_ptr<Mesh>>& outMeshes
-    );
+    // Set texture manager for loading/caching textures
+    void SetTextureManager(TextureManager* textureManager);
+
+    // Load a complete model with meshes, materials, and textures
+    bool LoadGLTF(const char* filepath, RenderDevice* device, LoadedModel& outModel);
+
+    // Legacy overload for backwards compatibility (meshes only)
+    bool LoadGLTF(const char* filepath, RenderDevice* device,
+        std::vector<std::unique_ptr<Mesh>>& outMeshes);
 
 private:
-    // Helper to convert GLTF data to our vertex format
-    void ProcessMesh(
-        const void* gltfAsset,
-        size_t meshIndex,
-        size_t primitiveIndex,
-        RenderDevice* device,
-        std::vector<std::unique_ptr<Mesh>>& outMeshes
-    );
+    TextureManager* m_textureManager;
 };
