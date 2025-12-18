@@ -1,19 +1,22 @@
 #include "Renderer.h"
 #include "RenderDevice.h"
 #include "Shader.h"
+#include "Camera.h"
+#include "Texture.h"
+#include "Material.h"
 #include <d3dx12/d3dx12.h>
 #include <glm/gtc/type_ptr.hpp>
 #include "VertexFormats.h"
 #include "Mesh.h"
-#include "Camera.h"
 
 Renderer::Renderer()
     : m_device(nullptr)
-    , m_triangleVertexBufferView({})
     , m_cubeVertexBufferView({})
     , m_cubeIndexBufferView({})
     , m_cubeIndexCount(0)
     , m_constantBufferDataBegin(nullptr)
+    , m_texturedConstantBufferBegin(nullptr)
+    , m_materialConstantBufferBegin(nullptr)
     , m_cubeRotation(0.0f)
 {
 }
@@ -27,16 +30,14 @@ bool Renderer::Initialize(RenderDevice* device)
 {
     m_device = device;
 
-    if (!CreateTriangleGeometry())
-        return false;
-
-    if (!CreateBasicPipeline())
-        return false;
-
     if (!CreateCubeGeometry())
         return false;
 
     if (!CreateCubePipeline())
+        return false;
+
+    // Create textured pipeline
+    if (!CreateTexturedPipeline())
         return false;
 
     return true;
@@ -44,178 +45,37 @@ bool Renderer::Initialize(RenderDevice* device)
 
 void Renderer::Shutdown()
 {
-    // Unmap constant buffer if it was mapped
     if (m_constantBuffer && m_constantBufferDataBegin)
     {
         m_constantBuffer->Unmap(0, nullptr);
         m_constantBufferDataBegin = nullptr;
     }
 
-    // Resources will be released automatically by ComPtr
+    if (m_texturedConstantBuffer && m_texturedConstantBufferBegin)
+    {
+        m_texturedConstantBuffer->Unmap(0, nullptr);
+        m_texturedConstantBufferBegin = nullptr;
+    }
+
+    if (m_materialConstantBuffer && m_materialConstantBufferBegin)
+    {
+        m_materialConstantBuffer->Unmap(0, nullptr);
+        m_materialConstantBufferBegin = nullptr;
+    }
+
     m_device = nullptr;
 }
 
 void Renderer::BeginFrame()
 {
-    // Currently empty - will be used for per-frame setup later
-    // Example: updating constant buffers, clearing render targets, etc.
 }
 
 void Renderer::EndFrame()
 {
-    // Currently empty - will be used for per-frame cleanup later
-}
-
-void Renderer::DrawTriangle()
-{
-    ID3D12GraphicsCommandList* commandList = m_device->GetCommandList();
-
-    // Set pipeline state
-    commandList->SetPipelineState(m_basicPipelineState.Get());
-    commandList->SetGraphicsRootSignature(m_basicRootSignature.Get());
-
-    // Set primitive topology
-    commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-    // Set vertex buffer
-    commandList->IASetVertexBuffers(0, 1, &m_triangleVertexBufferView);
-
-    // Draw
-    commandList->DrawInstanced(3, 1, 0, 0);
-}
-
-bool Renderer::CreateTriangleGeometry()
-{
-    // Vertex structure
-    struct Vertex
-    {
-        float position[3];
-        float color[4];
-    };
-
-    // Triangle vertices (same as before)
-    Vertex triangleVertices[] =
-    {
-        { {  0.0f,  0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },  // Top (red)
-        { {  0.5f, -0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },  // Right (green)
-        { { -0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } }   // Left (blue)
-    };
-
-    const UINT vertexBufferSize = sizeof(triangleVertices);
-
-    // Create vertex buffer
-    CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_UPLOAD);
-    CD3DX12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize);
-
-    HRESULT hr = m_device->GetDevice()->CreateCommittedResource(
-        &heapProps,
-        D3D12_HEAP_FLAG_NONE,
-        &bufferDesc,
-        D3D12_RESOURCE_STATE_GENERIC_READ,
-        nullptr,
-        IID_PPV_ARGS(&m_triangleVertexBuffer)
-    );
-
-    if (FAILED(hr))
-        return false;
-
-    // Copy vertex data to buffer
-    UINT8* pVertexDataBegin;
-    CD3DX12_RANGE readRange(0, 0);
-
-    hr = m_triangleVertexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pVertexDataBegin));
-    if (FAILED(hr))
-        return false;
-
-    memcpy(pVertexDataBegin, triangleVertices, vertexBufferSize);
-    m_triangleVertexBuffer->Unmap(0, nullptr);
-
-    // Initialize vertex buffer view
-    m_triangleVertexBufferView.BufferLocation = m_triangleVertexBuffer->GetGPUVirtualAddress();
-    m_triangleVertexBufferView.StrideInBytes = sizeof(Vertex);
-    m_triangleVertexBufferView.SizeInBytes = vertexBufferSize;
-
-    return true;
-}
-
-bool Renderer::CreateBasicPipeline()
-{
-    // Create root signature
-    CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
-    rootSignatureDesc.Init(
-        0,
-        nullptr,
-        0,
-        nullptr,
-        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT
-    );
-
-    Microsoft::WRL::ComPtr<ID3DBlob> signature;
-    Microsoft::WRL::ComPtr<ID3DBlob> error;
-
-    HRESULT hr = D3D12SerializeRootSignature(
-        &rootSignatureDesc,
-        D3D_ROOT_SIGNATURE_VERSION_1,
-        &signature,
-        &error
-    );
-
-    if (FAILED(hr))
-        return false;
-
-    hr = m_device->GetDevice()->CreateRootSignature(
-        0,
-        signature->GetBufferPointer(),
-        signature->GetBufferSize(),
-        IID_PPV_ARGS(&m_basicRootSignature)
-    );
-
-    if (FAILED(hr))
-        return false;
-
-    // Compile shaders
-    Shader vertexShader;
-    Shader pixelShader;
-
-    if (!vertexShader.CompileFromFile(L"Shaders/VertexShader.hlsl", "main", "vs_5_1"))
-        return false;
-
-    if (!pixelShader.CompileFromFile(L"Shaders/PixelShader.hlsl", "main", "ps_5_1"))
-        return false;
-
-    // Define input layout - now matches Mesh vertex format
-    D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
-    {
-        { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-        { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
-    };
-
-    // Create pipeline state object
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
-    psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
-    psoDesc.pRootSignature = m_basicRootSignature.Get();
-    psoDesc.VS = vertexShader.GetBytecode();
-    psoDesc.PS = pixelShader.GetBytecode();
-    psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-    psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-    psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-    psoDesc.SampleMask = UINT_MAX;
-    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-    psoDesc.NumRenderTargets = 1;
-    psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
-    psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
-    psoDesc.SampleDesc.Count = 1;
-
-    hr = m_device->GetDevice()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_basicPipelineState));
-
-    return SUCCEEDED(hr);
 }
 
 bool Renderer::CreateCubeGeometry()
 {
-    // Cube vertices
     Vertex cubeVertices[] =
     {
         // Front face (red)
@@ -242,34 +102,27 @@ bool Renderer::CreateCubeGeometry()
         { glm::vec3(0.5f, -0.5f,  0.5f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec2(1.0f, 1.0f), glm::vec4(1.0f, 1.0f, 0.0f, 1.0f) },
         { glm::vec3(0.5f, -0.5f, -0.5f), glm::vec3(0.0f, -1.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec4(1.0f, 1.0f, 0.0f, 1.0f) },
 
-        // Left face (cyan)
-        { glm::vec3(-0.5f, -0.5f,  0.5f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec2(0.0f, 0.0f), glm::vec4(0.0f, 1.0f, 1.0f, 1.0f) },
-        { glm::vec3(-0.5f,  0.5f,  0.5f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec2(0.0f, 1.0f), glm::vec4(0.0f, 1.0f, 1.0f, 1.0f) },
-        { glm::vec3(-0.5f,  0.5f, -0.5f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec2(1.0f, 1.0f), glm::vec4(0.0f, 1.0f, 1.0f, 1.0f) },
-        { glm::vec3(-0.5f, -0.5f, -0.5f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec4(0.0f, 1.0f, 1.0f, 1.0f) },
-
         // Right face (magenta)
-        { glm::vec3(0.5f, -0.5f,  0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec2(0.0f, 0.0f), glm::vec4(1.0f, 0.0f, 1.0f, 1.0f) },
-        { glm::vec3(0.5f,  0.5f,  0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec2(0.0f, 1.0f), glm::vec4(1.0f, 0.0f, 1.0f, 1.0f) },
-        { glm::vec3(0.5f,  0.5f, -0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec2(1.0f, 1.0f), glm::vec4(1.0f, 0.0f, 1.0f, 1.0f) },
-        { glm::vec3(0.5f, -0.5f, -0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec4(1.0f, 0.0f, 1.0f, 1.0f) }
+        { glm::vec3(0.5f, -0.5f, -0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec2(0.0f, 0.0f), glm::vec4(1.0f, 0.0f, 1.0f, 1.0f) },
+        { glm::vec3(0.5f,  0.5f, -0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec2(0.0f, 1.0f), glm::vec4(1.0f, 0.0f, 1.0f, 1.0f) },
+        { glm::vec3(0.5f,  0.5f,  0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec2(1.0f, 1.0f), glm::vec4(1.0f, 0.0f, 1.0f, 1.0f) },
+        { glm::vec3(0.5f, -0.5f,  0.5f), glm::vec3(1.0f, 0.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec4(1.0f, 0.0f, 1.0f, 1.0f) },
+
+        // Left face (cyan)
+        { glm::vec3(-0.5f, -0.5f, -0.5f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec2(0.0f, 0.0f), glm::vec4(0.0f, 1.0f, 1.0f, 1.0f) },
+        { glm::vec3(-0.5f,  0.5f, -0.5f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec2(0.0f, 1.0f), glm::vec4(0.0f, 1.0f, 1.0f, 1.0f) },
+        { glm::vec3(-0.5f,  0.5f,  0.5f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec2(1.0f, 1.0f), glm::vec4(0.0f, 1.0f, 1.0f, 1.0f) },
+        { glm::vec3(-0.5f, -0.5f,  0.5f), glm::vec3(-1.0f, 0.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec4(0.0f, 1.0f, 1.0f, 1.0f) },
     };
 
-    // Indices for cube (2 triangles per face, 6 faces)
-    UINT16 cubeIndices[] =
+    uint16_t cubeIndices[] =
     {
-        // Front
-        0, 1, 2,    0, 2, 3,
-        // Back
-        4, 6, 5,    4, 7, 6,
-        // Top
-        8, 9, 10,   8, 10, 11,
-        // Bottom
-        12, 14, 13, 12, 15, 14,
-        // Left
-        16, 17, 18, 16, 18, 19,
-        // Right
-        20, 22, 21, 20, 23, 22
+        0, 1, 2, 0, 2, 3,       // Front
+        4, 6, 5, 4, 7, 6,       // Back
+        8, 9, 10, 8, 10, 11,    // Top
+        12, 14, 13, 12, 15, 14, // Bottom
+        16, 17, 18, 16, 18, 19, // Right
+        20, 22, 21, 20, 23, 22  // Left
     };
 
     m_cubeIndexCount = _countof(cubeIndices);
@@ -277,7 +130,6 @@ bool Renderer::CreateCubeGeometry()
     const UINT vertexBufferSize = sizeof(cubeVertices);
     const UINT indexBufferSize = sizeof(cubeIndices);
 
-    // Create vertex buffer
     CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
     CD3DX12_RESOURCE_DESC vertexBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(vertexBufferSize);
 
@@ -293,7 +145,6 @@ bool Renderer::CreateCubeGeometry()
     if (FAILED(hr))
         return false;
 
-    // Copy vertex data
     UINT8* pVertexDataBegin;
     CD3DX12_RANGE readRange(0, 0);
 
@@ -304,12 +155,10 @@ bool Renderer::CreateCubeGeometry()
     memcpy(pVertexDataBegin, cubeVertices, vertexBufferSize);
     m_cubeVertexBuffer->Unmap(0, nullptr);
 
-    // Initialize vertex buffer view
     m_cubeVertexBufferView.BufferLocation = m_cubeVertexBuffer->GetGPUVirtualAddress();
     m_cubeVertexBufferView.StrideInBytes = sizeof(Vertex);
     m_cubeVertexBufferView.SizeInBytes = vertexBufferSize;
 
-    // Create index buffer
     CD3DX12_RESOURCE_DESC indexBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(indexBufferSize);
 
     hr = m_device->GetDevice()->CreateCommittedResource(
@@ -324,7 +173,6 @@ bool Renderer::CreateCubeGeometry()
     if (FAILED(hr))
         return false;
 
-    // Copy index data
     UINT8* pIndexDataBegin;
     hr = m_cubeIndexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pIndexDataBegin));
     if (FAILED(hr))
@@ -333,7 +181,6 @@ bool Renderer::CreateCubeGeometry()
     memcpy(pIndexDataBegin, cubeIndices, indexBufferSize);
     m_cubeIndexBuffer->Unmap(0, nullptr);
 
-    // Initialize index buffer view
     m_cubeIndexBufferView.BufferLocation = m_cubeIndexBuffer->GetGPUVirtualAddress();
     m_cubeIndexBufferView.Format = DXGI_FORMAT_R16_UINT;
     m_cubeIndexBufferView.SizeInBytes = indexBufferSize;
@@ -343,9 +190,8 @@ bool Renderer::CreateCubeGeometry()
 
 bool Renderer::CreateCubePipeline()
 {
-    // Create root signature with constant buffer
     CD3DX12_ROOT_PARAMETER rootParameter;
-    rootParameter.InitAsConstantBufferView(0);  // b0 in shader
+    rootParameter.InitAsConstantBufferView(0);
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
     rootSignatureDesc.Init(
@@ -379,7 +225,6 @@ bool Renderer::CreateCubePipeline()
     if (FAILED(hr))
         return false;
 
-    // Compile cube shaders
     Shader vertexShader;
     Shader pixelShader;
 
@@ -389,7 +234,6 @@ bool Renderer::CreateCubePipeline()
     if (!pixelShader.CompileFromFile(L"Shaders/CubePixelShader.hlsl", "main", "ps_5_1"))
         return false;
 
-    // Define input layout - matches the new vertex format
     D3D12_INPUT_ELEMENT_DESC inputElementDescs[] =
     {
         { "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -398,7 +242,6 @@ bool Renderer::CreateCubePipeline()
         { "COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 }
     };
 
-    // Create pipeline state
     UINT layoutCount;
     D3D12_INPUT_ELEMENT_DESC* inputLayout = Vertex::GetInputLayout(layoutCount);
     D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
@@ -422,13 +265,10 @@ bool Renderer::CreateCubePipeline()
     if (FAILED(hr))
         return false;
 
-    const UINT constantBufferSize =
-        (sizeof(glm::mat4) + 255) & ~255;
+    const UINT constantBufferSize = (sizeof(glm::mat4) + 255) & ~255;
 
     CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
-    CD3DX12_RESOURCE_DESC bufferDesc =
-        CD3DX12_RESOURCE_DESC::Buffer(constantBufferSize);
-
+    CD3DX12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(constantBufferSize);
 
     hr = m_device->GetDevice()->CreateCommittedResource(
         &uploadHeap,
@@ -442,98 +282,272 @@ bool Renderer::CreateCubePipeline()
     if (FAILED(hr))
         return false;
 
-    // Map constant buffer (keep it mapped for updates)
     CD3DX12_RANGE readRange(0, 0);
     hr = m_constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_constantBufferDataBegin));
 
     return SUCCEEDED(hr);
 }
 
+bool Renderer::CreateTexturedPipeline()
+{
+    // Root signature with:
+    // [0] CBV - Transform constants (b0)
+    // [1] CBV - Material constants (b1)
+    // [2] Descriptor table - Texture SRV (t0)
+    // Static sampler (s0)
+
+    CD3DX12_ROOT_PARAMETER rootParams[3];
+
+    // Transform constants at b0
+    rootParams[0].InitAsConstantBufferView(0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
+
+    // Material constants at b1
+    rootParams[1].InitAsConstantBufferView(1, 0, D3D12_SHADER_VISIBILITY_PIXEL);
+
+    // Texture SRV table at t0
+    CD3DX12_DESCRIPTOR_RANGE srvRange;
+    srvRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);  // 1 texture at t0
+    rootParams[2].InitAsDescriptorTable(1, &srvRange, D3D12_SHADER_VISIBILITY_PIXEL);
+
+    // Static sampler
+    CD3DX12_STATIC_SAMPLER_DESC sampler(
+        0,                                  // Shader register s0
+        D3D12_FILTER_MIN_MAG_MIP_LINEAR,   // Linear filtering
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,   // U wrap
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP,   // V wrap
+        D3D12_TEXTURE_ADDRESS_MODE_WRAP    // W wrap
+    );
+
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc;
+    rootSigDesc.Init(
+        _countof(rootParams),
+        rootParams,
+        1,
+        &sampler,
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT
+    );
+
+    Microsoft::WRL::ComPtr<ID3DBlob> signature;
+    Microsoft::WRL::ComPtr<ID3DBlob> error;
+
+    HRESULT hr = D3D12SerializeRootSignature(
+        &rootSigDesc,
+        D3D_ROOT_SIGNATURE_VERSION_1,
+        &signature,
+        &error
+    );
+
+    if (FAILED(hr))
+    {
+        if (error)
+        {
+            OutputDebugStringA((char*)error->GetBufferPointer());
+        }
+        return false;
+    }
+
+    hr = m_device->GetDevice()->CreateRootSignature(
+        0,
+        signature->GetBufferPointer(),
+        signature->GetBufferSize(),
+        IID_PPV_ARGS(&m_texturedRootSignature)
+    );
+
+    if (FAILED(hr))
+        return false;
+
+    // Compile shaders
+    Shader vertexShader;
+    Shader pixelShader;
+
+    if (!vertexShader.CompileFromFile(L"Shaders/TexturedVS.hlsl", "main", "vs_5_1"))
+    {
+        OutputDebugStringA("Failed to compile TexturedVS.hlsl\n");
+        return false;
+    }
+
+    if (!pixelShader.CompileFromFile(L"Shaders/TexturedPS.hlsl", "main", "ps_5_1"))
+    {
+        OutputDebugStringA("Failed to compile TexturedPS.hlsl\n");
+        return false;
+    }
+
+    // Input layout
+    UINT layoutCount;
+    D3D12_INPUT_ELEMENT_DESC* inputLayout = Vertex::GetInputLayout(layoutCount);
+
+    // Pipeline state
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.InputLayout = { inputLayout, layoutCount };
+    psoDesc.pRootSignature = m_texturedRootSignature.Get();
+    psoDesc.VS = vertexShader.GetBytecode();
+    psoDesc.PS = pixelShader.GetBytecode();
+    psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    psoDesc.RasterizerState.FrontCounterClockwise = TRUE;
+    psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    psoDesc.SampleMask = UINT_MAX;
+    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    psoDesc.NumRenderTargets = 1;
+    psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
+    psoDesc.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    psoDesc.SampleDesc.Count = 1;
+
+    hr = m_device->GetDevice()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_texturedPipelineState));
+
+    if (FAILED(hr))
+    {
+        OutputDebugStringA("Failed to create textured pipeline state\n");
+        return false;
+    }
+
+    // Create constant buffers
+    const UINT transformBufferSize = (sizeof(TexturedConstants) + 255) & ~255;
+    const UINT materialBufferSize = (sizeof(MaterialConstants) + 255) & ~255;
+
+    CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
+
+    // Transform constant buffer
+    CD3DX12_RESOURCE_DESC transformBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(transformBufferSize);
+    hr = m_device->GetDevice()->CreateCommittedResource(
+        &uploadHeap,
+        D3D12_HEAP_FLAG_NONE,
+        &transformBufferDesc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&m_texturedConstantBuffer)
+    );
+
+    if (FAILED(hr))
+        return false;
+
+    CD3DX12_RANGE readRange(0, 0);
+    hr = m_texturedConstantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_texturedConstantBufferBegin));
+    if (FAILED(hr))
+        return false;
+
+    // Material constant buffer
+    CD3DX12_RESOURCE_DESC materialBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(materialBufferSize);
+    hr = m_device->GetDevice()->CreateCommittedResource(
+        &uploadHeap,
+        D3D12_HEAP_FLAG_NONE,
+        &materialBufferDesc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&m_materialConstantBuffer)
+    );
+
+    if (FAILED(hr))
+        return false;
+
+    hr = m_materialConstantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_materialConstantBufferBegin));
+    if (FAILED(hr))
+        return false;
+
+    OutputDebugStringA("Textured pipeline created successfully\n");
+    return true;
+}
+
 void Renderer::DrawCube(float deltaTime)
 {
-    // Update rotation
     m_cubeRotation += deltaTime * 1.0f;
 
-    // Create transformation matrices using GLM
     glm::mat4 world = glm::rotate(glm::mat4(1.0f), m_cubeRotation, glm::vec3(0.0f, 1.0f, 0.0f));
     world = glm::rotate(world, m_cubeRotation * 0.5f, glm::vec3(1.0f, 0.0f, 0.0f));
 
-    // Camera
     glm::vec3 eyePosition(0.0f, 0.0f, -3.0f);
     glm::vec3 focusPosition(0.0f, 0.0f, 0.0f);
     glm::vec3 upDirection(0.0f, 1.0f, 0.0f);
     glm::mat4 view = glm::lookAt(eyePosition, focusPosition, upDirection);
 
-    // Projection. GLM uses radians, same as DirectXMath
     glm::mat4 projection = glm::perspective(
-        glm::radians(45.0f),  // FOV in radians
-        1280.0f / 720.0f,     // Aspect ratio
-        0.1f,                 // Near plane
-        100.0f                // Far plane
+        glm::radians(45.0f),
+        1280.0f / 720.0f,
+        0.1f,
+        100.0f
     );
 
-    // Combined matrix. GLM uses column major like HLSL, so no transpose
     glm::mat4 worldViewProjection = projection * view * world;
 
-    // Update constant buffer
     UpdateConstantBuffer(worldViewProjection);
 
-    // Get command list
     ID3D12GraphicsCommandList* commandList = m_device->GetCommandList();
 
-    // Set pipeline state
     commandList->SetPipelineState(m_cubePipelineState.Get());
     commandList->SetGraphicsRootSignature(m_cubeRootSignature.Get());
-
-    // Set constant buffer
     commandList->SetGraphicsRootConstantBufferView(0, m_constantBuffer->GetGPUVirtualAddress());
-
-    // Set primitive topology
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-    // Set vertex and index buffers
     commandList->IASetVertexBuffers(0, 1, &m_cubeVertexBufferView);
     commandList->IASetIndexBuffer(&m_cubeIndexBufferView);
-
-    // Draw
     commandList->DrawIndexedInstanced(m_cubeIndexCount, 1, 0, 0, 0);
 }
 
-void Renderer::DrawMesh(Mesh* mesh, const glm::mat4& transform, Camera* camera)
+void Renderer::DrawMeshTextured(Mesh* mesh, const glm::mat4& transform, Camera* camera)
 {
     if (!mesh || !mesh->IsValid() || !camera)
         return;
 
-    // Get matrices from camera
+    ID3D12GraphicsCommandList* commandList = m_device->GetCommandList();
+
+    // Set pipeline and root signature
+    commandList->SetPipelineState(m_texturedPipelineState.Get());
+    commandList->SetGraphicsRootSignature(m_texturedRootSignature.Get());
+
+    // Set descriptor heap for textures
+    ID3D12DescriptorHeap* heaps[] = { m_device->GetSRVHeap() };
+    commandList->SetDescriptorHeaps(1, heaps);
+
+    // Update transform constants
     glm::mat4 view = camera->GetViewMatrix();
     glm::mat4 projection = camera->GetProjectionMatrix();
 
-    // Combined transformation
-    glm::mat4 worldViewProjection = projection * view * transform;
+    TexturedConstants transformConsts;
+    transformConsts.worldViewProjection = glm::transpose(projection * view * transform);
+    transformConsts.world = glm::transpose(transform);
+    transformConsts.cameraPosition = camera->GetPosition();
+    transformConsts.padding = 0.0f;
 
-    // Update constant buffer
-    UpdateConstantBuffer(worldViewProjection);
+    memcpy(m_texturedConstantBufferBegin, &transformConsts, sizeof(TexturedConstants));
 
-    // Get command list
-    ID3D12GraphicsCommandList* commandList = m_device->GetCommandList();
+    // Update material constants
+    MaterialConstants matConsts;
+    auto material = mesh->GetMaterial();
 
-    // Set pipeline state
-    commandList->SetPipelineState(m_cubePipelineState.Get());
-    commandList->SetGraphicsRootSignature(m_cubeRootSignature.Get());
+    if (material && material->baseColorTexture)
+    {
+        matConsts.baseColorFactor = material->baseColorFactor;
+        matConsts.hasBaseColorTexture = 1.0f;
 
-    // Set constant buffer
-    commandList->SetGraphicsRootConstantBufferView(0, m_constantBuffer->GetGPUVirtualAddress());
+        // Bind texture
+        commandList->SetGraphicsRootDescriptorTable(
+            2,  // Root param index for texture
+            m_device->GetSRVGPUHandle(material->baseColorTexture->GetSRVIndex())
+        );
+    }
+    else
+    {
+        matConsts.baseColorFactor = glm::vec4(1.0f);  // White default
+        matConsts.hasBaseColorTexture = 0.0f;
 
-    // Set primitive topology
+        // Still need to bind something - use a default texture if available
+        // For now, we'll just not bind anything (shader handles hasBaseColorTexture = 0)
+    }
+    matConsts.padding = glm::vec3(0.0f);
+
+    memcpy(m_materialConstantBufferBegin, &matConsts, sizeof(MaterialConstants));
+
+    // Set constant buffers
+    commandList->SetGraphicsRootConstantBufferView(0, m_texturedConstantBuffer->GetGPUVirtualAddress());
+    commandList->SetGraphicsRootConstantBufferView(1, m_materialConstantBuffer->GetGPUVirtualAddress());
+
+    // Set mesh buffers and draw
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    // Set mesh buffers
     auto vbv = mesh->GetVertexBufferView();
     auto ibv = mesh->GetIndexBufferView();
     commandList->IASetVertexBuffers(0, 1, &vbv);
     commandList->IASetIndexBuffer(&ibv);
 
-    // Draw
     commandList->DrawIndexedInstanced(mesh->GetIndexCount(), 1, 0, 0, 0);
 }
 

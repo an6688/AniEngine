@@ -8,8 +8,6 @@
 #include <sstream>
 #include <iomanip>
 #include <glm/gtc/matrix_transform.hpp>
-#include <glm/glm.hpp>
-
 
 Application::Application()
     : m_renderDevice(nullptr)
@@ -88,7 +86,7 @@ bool Application::Initialize()
     // Create camera
     m_camera = new Camera();
     m_camera->Initialize(1280.0f / 720.0f);
-    m_camera->FrameBounds(glm::vec3(0.0f, 0.0f, 0.0f), 2.0f);  // Default framing
+    m_camera->FrameBounds(glm::vec3(0.0f, 0.0f, 0.0f), 2.0f);
 
     // Load test model (avocado)
     const char* modelPath = "E:/repos/glTF-Sample-Assets-main/glTF-Sample-Assets-main/Models/Avocado/glTF/Avocado.gltf";
@@ -102,7 +100,6 @@ bool Application::Initialize()
     }
     else
     {
-        // Debug: print how many textures loaded
         char msg[256];
         sprintf_s(msg, "Loaded %zu meshes, %zu materials, %zu textures\n",
             m_loadedModel.meshes.size(),
@@ -113,7 +110,7 @@ bool Application::Initialize()
 
     // Start timer
     m_timer.Start();
-    m_timer.Tick();  // First tick
+    m_timer.Tick();
 
     m_isRunning = true;
 
@@ -122,7 +119,6 @@ bool Application::Initialize()
 
 void Application::Run()
 {
-    // Main game loop
     while (m_isRunning)
     {
         if (!m_window.ProcessMessages())
@@ -132,13 +128,9 @@ void Application::Run()
         }
 
         m_input.Update();
-
         m_timer.Tick();
 
-        // Update game logic
         Update();
-
-        // Render frame
         Render();
     }
 }
@@ -162,32 +154,26 @@ void Application::Update()
 {
     float deltaTime = m_timer.GetDeltaTime();
 
-    // Handle camera input
     UpdateCameraInput();
-
-    // Update camera
     m_camera->Update(deltaTime);
 
     // Uncomment to rotate model:
-    // m_modelRotation += deltaTime * 0.2f;
+    // m_modelRotation += deltaTime * 0.5f;
 
     UpdateWindowTitle();
 }
 
 void Application::UpdateCameraInput()
 {
-    // Left mouse button - orbit
-    if (m_input.IsMouseButtonDown(0))  // Left mouse
+    if (m_input.IsMouseButtonDown(0))
     {
         float deltaX = static_cast<float>(m_input.GetMouseDeltaX());
         float deltaY = static_cast<float>(m_input.GetMouseDeltaY());
-
         m_camera->Orbit(deltaX * 0.01f, -deltaY * 0.01f);
     }
 
-    // Middle mouse or Shift+Left - pan
-    bool panMode = m_input.IsMouseButtonDown(2) ||  // Middle mouse
-        (m_input.IsMouseButtonDown(0) && m_input.IsKeyDown(VK_SHIFT));  // Shift+Left
+    bool panMode = m_input.IsMouseButtonDown(2) ||
+        (m_input.IsMouseButtonDown(0) && m_input.IsKeyDown(VK_SHIFT));
 
     if (panMode)
     {
@@ -196,20 +182,17 @@ void Application::UpdateCameraInput()
         m_camera->Pan(deltaX, deltaY);
     }
 
-    // Mouse wheel - zoom
     int wheelDelta = m_input.GetMouseWheelDelta();
     if (wheelDelta != 0)
     {
         m_camera->Zoom(static_cast<float>(-wheelDelta) * 0.5f);
     }
 
-    // F key - frame model
     if (m_input.IsKeyDown('F'))
     {
         m_camera->FrameBounds(glm::vec3(0.0f, 0.0f, 0.0f), 2.0f);
     }
 
-    // WASD keyboard movement
     {
         float deltaTime = m_timer.GetDeltaTime();
         float moveAmount = 30.0f * deltaTime;
@@ -231,12 +214,13 @@ void Application::Render()
     transform = glm::scale(transform, glm::vec3(30.0f));
     transform = glm::rotate(transform, m_modelRotation, glm::vec3(0.0f, 1.0f, 0.0f));
 
-    // Render loaded model
+    // Render loaded model with textures
     if (!m_loadedModel.meshes.empty())
     {
         for (const auto& mesh : m_loadedModel.meshes)
         {
-            m_renderer->DrawMesh(mesh.get(), transform, m_camera);
+            // Use the new textured drawing method
+            m_renderer->DrawMeshTextured(mesh.get(), transform, m_camera);
         }
     }
     else

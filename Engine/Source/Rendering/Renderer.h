@@ -3,68 +3,58 @@
 #include <d3d12.h>
 #include <wrl/client.h>
 #include <DirectXMath.h>
+#include <glm/glm.hpp>
 #include "Mesh.h"
 
-// Forward declarations
 class RenderDevice;
 class Mesh;
 class Camera;
+class Texture;
+struct Material;
 
-// High-level renderer - manages renderables and draw calls
-// DEPENDS ON: RenderDevice (passed as reference, not owned)
+// Constant buffer structure for textured rendering
+struct TexturedConstants
+{
+    glm::mat4 worldViewProjection;
+    glm::mat4 world;
+    glm::vec3 cameraPosition;
+    float padding;
+};
+
+struct MaterialConstants
+{
+    glm::vec4 baseColorFactor;
+    float hasBaseColorTexture;
+    glm::vec3 padding;
+};
+
 class Renderer
 {
 public:
     Renderer();
     ~Renderer();
 
-    // Initialize renderer with a device
     bool Initialize(RenderDevice* device);
-
-    // Shutdown and cleanup
     void Shutdown();
 
-    // Begin rendering a frame
     void BeginFrame();
-
-    // End rendering a frame
     void EndFrame();
 
-    // Draw the test triangle
-    void DrawTriangle();
-
-    // Draw a spinning cube
+    // Draw methods
     void DrawCube(float deltaTime);
-
-    // Draw a mesh with transform and camera
-    void DrawMesh(Mesh* mesh, const glm::mat4& transform, Camera* camera);
+    void DrawMeshTextured(Mesh* mesh, const glm::mat4& transform, Camera* camera);
 
 private:
-    // Create triangle geometry
-    bool CreateTriangleGeometry();
-
-    // Create cube geometry
     bool CreateCubeGeometry();
-
-    // Create shaders and pipeline state for basic rendering
-    bool CreateBasicPipeline();
-
-    // Create pipeline with constant buffer support (for cube)
     bool CreateCubePipeline();
 
-    // Update constant buffer with new matrix
+    // New: Create pipeline for textured rendering
+    bool CreateTexturedPipeline();
+
     void UpdateConstantBuffer(const glm::mat4& matrix);
 
 private:
-    RenderDevice* m_device;  // Not owned, just a reference
-
-    // Triangle resources
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_triangleVertexBuffer;
-    D3D12_VERTEX_BUFFER_VIEW m_triangleVertexBufferView;
-
-    // Pipeline resources
-    Microsoft::WRL::ComPtr<ID3D12RootSignature> m_basicRootSignature;
-    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_basicPipelineState;
+    RenderDevice* m_device;
 
     // Cube resources
     Microsoft::WRL::ComPtr<ID3D12Resource> m_cubeVertexBuffer;
@@ -73,12 +63,19 @@ private:
     D3D12_INDEX_BUFFER_VIEW m_cubeIndexBufferView;
     UINT m_cubeIndexCount;
 
-    // Cube pipeline and constant buffer
+    // Cube pipeline
     Microsoft::WRL::ComPtr<ID3D12RootSignature> m_cubeRootSignature;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_cubePipelineState;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_constantBuffer;
-    UINT8* m_constantBufferDataBegin;  // Mapped pointer for updating
+    UINT8* m_constantBufferDataBegin;
 
-    // Animation state
+    // Textured pipeline (NEW)
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> m_texturedRootSignature;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_texturedPipelineState;
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_texturedConstantBuffer;
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_materialConstantBuffer;
+    UINT8* m_texturedConstantBufferBegin;
+    UINT8* m_materialConstantBufferBegin;
+
     float m_cubeRotation;
 };
