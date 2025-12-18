@@ -69,16 +69,16 @@ bool Application::Initialize()
         return false;
     }
 
-    // Create and initialize renderer
-    m_renderer = new Renderer();
-    if (!m_renderer->Initialize(m_renderDevice))
+    // Create texture manager BEFORE renderer (renderer needs it)
+    m_textureManager = new TextureManager();
+    if (!m_textureManager->Initialize(m_renderDevice))
     {
         return false;
     }
 
-    // Create texture manager
-    m_textureManager = new TextureManager();
-    if (!m_textureManager->Initialize(m_renderDevice))
+    // Create and initialize renderer (now takes texture manager)
+    m_renderer = new Renderer();
+    if (!m_renderer->Initialize(m_renderDevice, m_textureManager))
     {
         return false;
     }
@@ -214,12 +214,11 @@ void Application::Render()
     transform = glm::scale(transform, glm::vec3(30.0f));
     transform = glm::rotate(transform, m_modelRotation, glm::vec3(0.0f, 1.0f, 0.0f));
 
-    // Render loaded model with textures
+    // Render loaded model with PBR materials
     if (!m_loadedModel.meshes.empty())
     {
         for (const auto& mesh : m_loadedModel.meshes)
         {
-            // Use the new textured drawing method
             m_renderer->DrawMeshTextured(mesh.get(), transform, m_camera);
         }
     }
@@ -247,16 +246,4 @@ void Application::UpdateWindowTitle()
         m_window.SetTitle(title.str().c_str());
         m_titleUpdateTimer = 0.0f;
     }
-}
-
-bool Application::LoadTestModel(const char* filepath)
-{
-    ModelLoader loader;
-
-    if (!loader.LoadGLTF(filepath, m_renderDevice, m_loadedMeshes))
-    {
-        return false;
-    }
-
-    return !m_loadedMeshes.empty();
 }
