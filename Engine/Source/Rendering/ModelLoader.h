@@ -5,6 +5,7 @@
 #include <memory>
 #include <unordered_map>
 #include <cstdint>
+#include <glm/glm.hpp>
 
 class RenderDevice;
 class Mesh;
@@ -18,6 +19,12 @@ struct LoadedModel
     std::vector<std::unique_ptr<Mesh>> meshes;
     std::vector<std::shared_ptr<Material>> materials;
     std::vector<std::shared_ptr<Texture>> textures;
+
+    // Bounding box info for camera framing
+    glm::vec3 boundsMin = glm::vec3(0.0f);
+    glm::vec3 boundsMax = glm::vec3(0.0f);
+    glm::vec3 center = glm::vec3(0.0f);
+    float size = 1.0f;
 };
 
 class ModelLoader

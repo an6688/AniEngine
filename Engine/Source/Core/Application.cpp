@@ -17,6 +17,8 @@ Application::Application()
     , m_isRunning(false)
     , m_titleUpdateTimer(0.0f)
     , m_modelRotation(0.0f)
+    , m_modelScale(1.0f)
+    , m_modelCenter(0.0f)
 {
 }
 
@@ -69,14 +71,14 @@ bool Application::Initialize()
         return false;
     }
 
-    // Create texture manager BEFORE renderer (renderer needs it)
+    // Create texture manager BEFORE renderer
     m_textureManager = new TextureManager();
     if (!m_textureManager->Initialize(m_renderDevice))
     {
         return false;
     }
 
-    // Create and initialize renderer (now takes texture manager)
+    // Create and initialize renderer
     m_renderer = new Renderer();
     if (!m_renderer->Initialize(m_renderDevice, m_textureManager))
     {
@@ -86,7 +88,6 @@ bool Application::Initialize()
     // Create camera
     m_camera = new Camera();
     m_camera->Initialize(1280.0f / 720.0f);
-    m_camera->FrameBounds(glm::vec3(0.0f, 0.0f, 0.0f), 2.0f);
 
     // Load test model (avocado)
     const char* modelPath = "E:/repos/glTF-Sample-Assets-main/glTF-Sample-Assets-main/Models/Avocado/glTF/Avocado.gltf";
@@ -96,7 +97,8 @@ bool Application::Initialize()
 
     if (!loader.LoadGLTF(modelPath, m_renderDevice, m_loadedModel))
     {
-        MessageBoxA(nullptr, "Failed to load avocado model! Check the path.", "Warning", MB_OK | MB_ICONWARNING);
+        MessageBoxA(nullptr, "Failed to load model! Check the path.", "Warning", MB_OK | MB_ICONWARNING);
+        // Still allow running with fallback cube
     }
     else
     {
@@ -106,6 +108,9 @@ bool Application::Initialize()
             m_loadedModel.materials.size(),
             m_loadedModel.textures.size());
         OutputDebugStringA(msg);
+
+        // Frame the loaded model properly
+        FrameModel();
     }
 
     // Start timer
@@ -115,6 +120,46 @@ bool Application::Initialize()
     m_isRunning = true;
 
     return true;
+}
+
+void Application::FrameModel()
+{
+    if (m_loadedModel.meshes.empty())
+    {
+        m_camera->FrameBounds(glm::vec3(0.0f), 2.0f);
+        m_modelScale = 1.0f;
+        m_modelCenter = glm::vec3(0.0f);
+        return;
+    }
+
+    // Store the original model center for transform
+    m_modelCenter = m_loadedModel.center;
+
+    // Calculate the radius (half the diagonal)
+    float modelRadius = m_loadedModel.size * 0.5f;
+
+    // We'll normalize the model scale so it fits in a reasonable size
+    // But the camera will frame based on the ACTUAL model bounds
+    if (m_loadedModel.size > 0.001f)
+    {
+        // Normalize to roughly 2 units
+        m_modelScale = 2.0f / m_loadedModel.size;
+    }
+    else
+    {
+        m_modelScale = 1.0f;
+    }
+
+    // After scaling, the model will be centered at origin with radius ~1
+    // Frame the camera on this normalized model
+    float scaledRadius = modelRadius * m_modelScale;
+    m_camera->FrameBounds(glm::vec3(0.0f), scaledRadius);
+
+    char msg[256];
+    sprintf_s(msg, "FrameModel: original center(%.2f, %.2f, %.2f), size: %.2f, scale: %.3f, scaled radius: %.2f\n",
+        m_modelCenter.x, m_modelCenter.y, m_modelCenter.z,
+        m_loadedModel.size, m_modelScale, scaledRadius);
+    OutputDebugStringA(msg);
 }
 
 void Application::Run()
@@ -165,13 +210,28 @@ void Application::Update()
 
 void Application::UpdateCameraInput()
 {
-    if (m_input.IsMouseButtonDown(0))
+    float deltaTime = m_timer.GetDeltaTime();
+
+    // Speed multiplier - Shift for fast, Ctrl for slow
+    float speedMultiplier = 1.0f;
+    if (m_input.IsKeyDown(VK_SHIFT))
+    {
+        speedMultiplier = 5.0f;
+    }
+    if (m_input.IsKeyDown(VK_CONTROL))
+    {
+        speedMultiplier = 0.2f;
+    }
+
+    // Left mouse button - orbit (when not holding shift)
+    if (m_input.IsMouseButtonDown(0) && !m_input.IsKeyDown(VK_SHIFT))
     {
         float deltaX = static_cast<float>(m_input.GetMouseDeltaX());
         float deltaY = static_cast<float>(m_input.GetMouseDeltaY());
         m_camera->Orbit(deltaX * 0.01f, -deltaY * 0.01f);
     }
 
+    // Middle mouse or Shift+Left - pan
     bool panMode = m_input.IsMouseButtonDown(2) ||
         (m_input.IsMouseButtonDown(0) && m_input.IsKeyDown(VK_SHIFT));
 
@@ -179,23 +239,28 @@ void Application::UpdateCameraInput()
     {
         float deltaX = static_cast<float>(-m_input.GetMouseDeltaX());
         float deltaY = static_cast<float>(m_input.GetMouseDeltaY());
-        m_camera->Pan(deltaX, deltaY);
+        m_camera->Pan(deltaX * speedMultiplier, deltaY * speedMultiplier);
     }
 
+    // Mouse wheel - zoom
     int wheelDelta = m_input.GetMouseWheelDelta();
     if (wheelDelta != 0)
     {
-        m_camera->Zoom(static_cast<float>(-wheelDelta) * 0.5f);
+        m_camera->Zoom(static_cast<float>(-wheelDelta) * 0.5f * speedMultiplier);
     }
 
-    if (m_input.IsKeyDown('F'))
+    // F key - frame model (use IsKeyDown if IsKeyPressed not available)
+    static bool fKeyWasDown = false;
+    bool fKeyIsDown = m_input.IsKeyDown('F');
+    if (fKeyIsDown && !fKeyWasDown)
     {
-        m_camera->FrameBounds(glm::vec3(0.0f, 0.0f, 0.0f), 2.0f);
+        FrameModel();
     }
+    fKeyWasDown = fKeyIsDown;
 
+    // WASD keyboard movement with speed multiplier
     {
-        float deltaTime = m_timer.GetDeltaTime();
-        float moveAmount = 30.0f * deltaTime;
+        float moveAmount = 30.0f * deltaTime * speedMultiplier;
         if (m_input.IsKeyDown('A')) m_camera->Pan(-moveAmount, 0.0f);
         if (m_input.IsKeyDown('D')) m_camera->Pan(moveAmount, 0.0f);
         if (m_input.IsKeyDown('Q')) m_camera->Pan(0.0f, -moveAmount);
@@ -209,10 +274,14 @@ void Application::Render()
 {
     m_renderDevice->BeginFrame();
 
-    // Create transform for the model
+    // Create transform for the model:
+    // 1. Translate to center at origin
+    // 2. Scale uniformly
+    // 3. Apply rotation
     glm::mat4 transform = glm::mat4(1.0f);
-    transform = glm::scale(transform, glm::vec3(30.0f));
+    transform = glm::scale(transform, glm::vec3(m_modelScale));
     transform = glm::rotate(transform, m_modelRotation, glm::vec3(0.0f, 1.0f, 0.0f));
+    transform = glm::translate(transform, -m_modelCenter);
 
     // Render loaded model with PBR materials
     if (!m_loadedModel.meshes.empty())
@@ -241,7 +310,8 @@ void Application::UpdateWindowTitle()
         title << L"AniEngine | FPS: " << std::fixed << std::setprecision(1)
             << m_timer.GetFPS()
             << L" | Meshes: " << m_loadedModel.meshes.size()
-            << L" | Textures: " << m_loadedModel.textures.size();
+            << L" | Textures: " << m_loadedModel.textures.size()
+            << L" | Dist: " << std::setprecision(2) << m_camera->GetDistance();
 
         m_window.SetTitle(title.str().c_str());
         m_titleUpdateTimer = 0.0f;

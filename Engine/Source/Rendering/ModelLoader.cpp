@@ -4,6 +4,7 @@
 #include "TextureManager.h"
 #include "Material.h"
 #include "RenderDevice.h"
+#include "VertexFormats.h"
 
 #include <fastgltf/core.hpp>
 #include <fastgltf/types.hpp>
@@ -15,6 +16,28 @@
 
 #include <filesystem>
 #include <fstream>
+
+// Helper to convert fastgltf error to string for better debugging
+static const char* GetFastGltfErrorString(fastgltf::Error error)
+{
+    switch (error)
+    {
+    case fastgltf::Error::None: return "None";
+    case fastgltf::Error::InvalidPath: return "InvalidPath";
+    case fastgltf::Error::MissingExtensions: return "MissingExtensions";
+    case fastgltf::Error::UnknownRequiredExtension: return "UnknownRequiredExtension";
+    case fastgltf::Error::InvalidJson: return "InvalidJson";
+    case fastgltf::Error::InvalidGltf: return "InvalidGltf";
+    case fastgltf::Error::InvalidOrMissingAssetField: return "InvalidOrMissingAssetField";
+    case fastgltf::Error::InvalidGLB: return "InvalidGLB";
+    case fastgltf::Error::MissingField: return "MissingField";
+    case fastgltf::Error::MissingExternalBuffer: return "MissingExternalBuffer";
+    case fastgltf::Error::UnsupportedVersion: return "UnsupportedVersion";
+    case fastgltf::Error::InvalidURI: return "InvalidURI";
+    case fastgltf::Error::InvalidFileData: return "InvalidFileData";
+    default: return "Unknown";
+    }
+}
 
 ModelLoader::ModelLoader()
     : m_textureManager(nullptr)
@@ -229,20 +252,46 @@ bool ModelLoader::LoadGLTF(const char* filepath, RenderDevice* device, LoadedMod
         return false;
     }
 
-    // Setup fastgltf parser
-    fastgltf::Parser parser;
+    OutputDebugStringA(("Loading glTF: " + std::string(filepath) + "\n").c_str());
+
+    // Check what files exist in the directory (for debugging buffer issues)
+    std::filesystem::path parentPath = path.parent_path();
+    OutputDebugStringA(("Directory contents:\n"));
+    for (const auto& entry : std::filesystem::directory_iterator(parentPath))
+    {
+        OutputDebugStringA(("  " + entry.path().filename().string() + "\n").c_str());
+    }
+
+    // Setup fastgltf parser with extensions support
+    fastgltf::Parser parser(
+        fastgltf::Extensions::KHR_materials_specular |
+        fastgltf::Extensions::KHR_materials_ior |
+        fastgltf::Extensions::KHR_materials_iridescence |
+        fastgltf::Extensions::KHR_materials_volume |
+        fastgltf::Extensions::KHR_materials_transmission |
+        fastgltf::Extensions::KHR_materials_clearcoat |
+        fastgltf::Extensions::KHR_materials_emissive_strength |
+        fastgltf::Extensions::KHR_materials_sheen |
+        fastgltf::Extensions::KHR_materials_unlit |
+        fastgltf::Extensions::KHR_mesh_quantization |
+        fastgltf::Extensions::KHR_lights_punctual |
+        fastgltf::Extensions::KHR_texture_transform |
+        fastgltf::Extensions::KHR_texture_basisu
+    );
 
     // Configure what data to load
     constexpr auto gltfOptions =
         fastgltf::Options::LoadExternalBuffers |
         fastgltf::Options::LoadExternalImages |
-        fastgltf::Options::GenerateMeshIndices;
+        fastgltf::Options::GenerateMeshIndices |
+        fastgltf::Options::DecomposeNodeMatrices;
 
-    // Load the glTF file - fastgltf 0.7+ API
+    // Load the glTF file
     auto dataResult = fastgltf::GltfDataBuffer::FromPath(path);
     if (dataResult.error() != fastgltf::Error::None)
     {
-        OutputDebugStringA("Failed to load glTF data buffer\n");
+        OutputDebugStringA(("Failed to load glTF data buffer: " +
+            std::string(GetFastGltfErrorString(dataResult.error())) + "\n").c_str());
         return false;
     }
 
@@ -266,12 +315,37 @@ bool ModelLoader::LoadGLTF(const char* filepath, RenderDevice* device, LoadedMod
 
     if (assetResult.error() != fastgltf::Error::None)
     {
-        OutputDebugStringA(("Failed to parse glTF: " + std::to_string(static_cast<int>(assetResult.error())) + "\n").c_str());
+        // Provide more detailed error info
+        char errorMsg[512];
+        sprintf_s(errorMsg, "Failed to parse glTF: %s (code %d)\n",
+            GetFastGltfErrorString(assetResult.error()),
+            static_cast<int>(assetResult.error()));
+        OutputDebugStringA(errorMsg);
+
+        // For MissingExternalBuffer, try to identify which buffer is missing
+        if (assetResult.error() == fastgltf::Error::MissingExternalBuffer)
+        {
+            OutputDebugStringA("Hint: Check that all .bin files referenced in the glTF exist in the same folder.\n");
+            OutputDebugStringA("The buffer URI in the glTF must exactly match the filename (case-sensitive).\n");
+        }
+
         return false;
     }
 
     fastgltf::Asset& asset = assetResult.get();
     std::string basePath = path.parent_path().string();
+
+    // Debug output
+    char msg[256];
+    sprintf_s(msg, "glTF has %zu meshes, %zu materials, %zu textures, %zu images, %zu buffers\n",
+        asset.meshes.size(), asset.materials.size(),
+        asset.textures.size(), asset.images.size(),
+        asset.buffers.size());
+    OutputDebugStringA(msg);
+
+    // Initialize bounds tracking
+    outModel.boundsMin = glm::vec3(FLT_MAX);
+    outModel.boundsMax = glm::vec3(-FLT_MAX);
 
     // Texture cache for this load operation
     std::unordered_map<size_t, std::shared_ptr<Texture>> textureCache;
@@ -400,15 +474,16 @@ bool ModelLoader::LoadGLTF(const char* filepath, RenderDevice* device, LoadedMod
                 continue;
             }
 
-            // fastgltf 0.7+: Attribute has accessorIndex member
             const fastgltf::Accessor& posAccessor = asset.accessors[posIt->accessorIndex];
             size_t vertexCount = posAccessor.count;
             vertices.resize(vertexCount);
 
-            // Load positions
+            // Load positions and update bounds
             fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, posAccessor,
                 [&](glm::vec3 pos, size_t idx) {
                     vertices[idx].position = pos;
+                    outModel.boundsMin = glm::min(outModel.boundsMin, pos);
+                    outModel.boundsMax = glm::max(outModel.boundsMax, pos);
                 });
 
             // Load normals
@@ -447,10 +522,33 @@ bool ModelLoader::LoadGLTF(const char* filepath, RenderDevice* device, LoadedMod
                 }
             }
 
-            // Set default color
-            for (auto& v : vertices)
+            // Load vertex colors if present
+            auto colorIt = primitive.findAttribute("COLOR_0");
+            if (colorIt != primitive.attributes.end())
             {
-                v.color = glm::vec4(1.0f);
+                const fastgltf::Accessor& colorAccessor = asset.accessors[colorIt->accessorIndex];
+
+                if (colorAccessor.type == fastgltf::AccessorType::Vec4)
+                {
+                    fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, colorAccessor,
+                        [&](glm::vec4 color, size_t idx) {
+                            vertices[idx].color = color;
+                        });
+                }
+                else if (colorAccessor.type == fastgltf::AccessorType::Vec3)
+                {
+                    fastgltf::iterateAccessorWithIndex<glm::vec3>(asset, colorAccessor,
+                        [&](glm::vec3 color, size_t idx) {
+                            vertices[idx].color = glm::vec4(color, 1.0f);
+                        });
+                }
+            }
+            else
+            {
+                for (auto& v : vertices)
+                {
+                    v.color = glm::vec4(1.0f);
+                }
             }
 
             // Load indices
@@ -465,7 +563,7 @@ bool ModelLoader::LoadGLTF(const char* filepath, RenderDevice* device, LoadedMod
                     });
             }
 
-            // Create mesh using Initialize() - matching your Mesh class
+            // Create mesh
             auto mesh = std::make_unique<Mesh>();
             if (mesh->Initialize(device, vertices, indices))
             {
@@ -478,11 +576,29 @@ bool ModelLoader::LoadGLTF(const char* filepath, RenderDevice* device, LoadedMod
                         mesh->SetMaterial(outModel.materials[matIdx]);
                     }
                 }
+                else
+                {
+                    auto defaultMat = std::make_shared<Material>();
+                    defaultMat->baseColorFactor = glm::vec4(0.8f, 0.8f, 0.8f, 1.0f);
+                    defaultMat->metallicFactor = 0.0f;
+                    defaultMat->roughnessFactor = 0.5f;
+                    mesh->SetMaterial(defaultMat);
+                }
 
                 outModel.meshes.push_back(std::move(mesh));
             }
         }
     }
+
+    // Calculate center and size for camera framing
+    outModel.center = (outModel.boundsMin + outModel.boundsMax) * 0.5f;
+    outModel.size = glm::length(outModel.boundsMax - outModel.boundsMin);
+
+    sprintf_s(msg, "Model bounds: min(%.2f, %.2f, %.2f) max(%.2f, %.2f, %.2f) size: %.2f\n",
+        outModel.boundsMin.x, outModel.boundsMin.y, outModel.boundsMin.z,
+        outModel.boundsMax.x, outModel.boundsMax.y, outModel.boundsMax.z,
+        outModel.size);
+    OutputDebugStringA(msg);
 
     return !outModel.meshes.empty();
 }

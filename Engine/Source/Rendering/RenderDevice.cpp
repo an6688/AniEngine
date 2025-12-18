@@ -105,7 +105,7 @@ void RenderDevice::BeginFrame()
     m_commandList->OMSetRenderTargets(1, &rtvHandle, FALSE, &dsvHandle);
 
     // Clear render target
-    const float clearColor[] = { 0.2f, 0.1f, 0.3f, 1.0f };  // Dark purple
+    const float clearColor[] = { 0.65f, 0.68f, 0.7f, 1.0f }; // Gray
     m_commandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
 
     // Clear depth stencil

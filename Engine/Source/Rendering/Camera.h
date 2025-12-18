@@ -1,69 +1,62 @@
 #pragma once
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
-// Orbit camera - rotates around a target point
-// DEPENDS ON: GLM only
 class Camera
 {
 public:
     Camera();
     ~Camera();
 
-    // Initialize camera with aspect ratio
     void Initialize(float aspectRatio);
-
-    // Update camera (call once per frame)
     void Update(float deltaTime);
 
     // Camera controls
-    void Orbit(float deltaYaw, float deltaPitch);  // Rotate around target
-    void Pan(float deltaX, float deltaY);          // Move target point
-    void PanForward(float amount);
-    void Zoom(float delta);                        // Move closer/farther
+    void Orbit(float deltaYaw, float deltaPitch);
+    void Pan(float deltaX, float deltaY);
+    void PanForward(float delta);
+    void Zoom(float delta);
 
-    // Set target point (what the camera looks at)
-    void SetTarget(const glm::vec3& target) { m_target = target; }
-
-    // Auto-frame to fit a bounding sphere
+    // Frame the camera to view bounds
     void FrameBounds(const glm::vec3& center, float radius);
 
-    // Get matrices for rendering
+    // Frame with explicit bounds (min/max)
+    void FrameBoundsMinMax(const glm::vec3& boundsMin, const glm::vec3& boundsMax);
+
+    // Getters
     glm::mat4 GetViewMatrix() const;
     glm::mat4 GetProjectionMatrix() const;
-    glm::mat4 GetViewProjectionMatrix() const;
-
-    // Get camera properties
-    glm::vec3 GetPosition() const;
+    glm::vec3 GetPosition() const { return m_position; }
     glm::vec3 GetTarget() const { return m_target; }
     float GetDistance() const { return m_distance; }
 
-private:
-    void UpdateViewMatrix();
+    // Setters
+    void SetAspectRatio(float aspectRatio);
+    void SetFOV(float fovDegrees);
+    void SetNearFar(float nearPlane, float farPlane);
 
 private:
-    // Orbit parameters (spherical coordinates)
-    float m_yaw;           // Rotation around Y axis (radians)
-    float m_pitch;         // Rotation around X axis (radians)
-    float m_distance;      // Distance from target
+    void UpdatePosition();
 
-    // Target point (what we're looking at)
+private:
+    // Camera position is calculated from target + spherical coordinates
+    glm::vec3 m_position;
     glm::vec3 m_target;
 
+    // Spherical coordinates for orbit camera
+    float m_yaw;        // Horizontal angle (radians)
+    float m_pitch;      // Vertical angle (radians)
+    float m_distance;   // Distance from target
+
     // Projection parameters
-    float m_fov;           // Field of view (radians)
+    float m_fov;        // In radians
     float m_aspectRatio;
     float m_nearPlane;
     float m_farPlane;
 
-    // Cached matrices
-    glm::mat4 m_viewMatrix;
-    glm::mat4 m_projectionMatrix;
-    bool m_viewDirty;      // View needs recalculation
-    bool m_projDirty;      // Projection needs recalculation
-
-    // Movement speeds
-    float m_orbitSpeed;
-    float m_panSpeed;
-    float m_zoomSpeed;
+    // Constraints
+    static constexpr float m_MinPitch = -1.5f;  // ~ -86 degrees
+    static constexpr float m_MaxPitch = 1.5f;   // ~ 86 degrees
+    static constexpr float m_MinDistance = 0.01f;
 };
