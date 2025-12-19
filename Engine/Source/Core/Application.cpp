@@ -88,7 +88,12 @@ bool Application::Initialize()
 	// Create camera
 	m_camera = new Camera();
 	m_camera->Initialize(1280.0f / 720.0f);
-
+	// Set up resize callback
+	m_window.SetResizeCallback([this](int width, int height) {
+		m_resizePending = true;
+		m_pendingWidth = width;
+		m_pendingHeight = height;
+		});
 	// Load test model - change this path to load different models
 	const char* modelPath = "E:/repos/glTF-Sample-Assets-main/glTF-Sample-Assets-main/Models/StainedGlassLamp/glTF/StainedGlassLamp.gltf";
 
@@ -182,6 +187,13 @@ void Application::Shutdown()
 
 void Application::Update()
 {
+	if (m_resizePending && m_pendingWidth > 0 && m_pendingHeight > 0)
+	{
+		m_renderDevice->OnResize(m_pendingWidth, m_pendingHeight);
+		m_camera->SetAspectRatio(static_cast<float>(m_pendingWidth) / static_cast<float>(m_pendingHeight));
+		m_resizePending = false;
+	}
+
 	float deltaTime = m_timer.GetDeltaTime();
 
 	UpdateCameraInput();

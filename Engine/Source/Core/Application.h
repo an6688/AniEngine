@@ -50,6 +50,9 @@ private:
 
     bool m_isRunning;
     bool m_fKeyWasDown = false;
+    bool m_resizePending = false;
+    int m_pendingWidth = 0;
+    int m_pendingHeight = 0;
 
     float m_titleUpdateTimer;
 };

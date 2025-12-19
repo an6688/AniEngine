@@ -150,10 +150,22 @@ LRESULT Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_SIZE:
-        m_width = LOWORD(lParam);
-        m_height = HIWORD(lParam);
-        // TODO: Handle resize for DirectX swap chain
+    {
+        int newWidth = LOWORD(lParam);
+        int newHeight = HIWORD(lParam);
+
+        // Only update dimensions if valid (ignore minimize)
+        if (newWidth > 0 && newHeight > 0)
+        {
+            m_width = newWidth;
+            m_height = newHeight;
+            if (m_resizeCallback)
+            {
+                m_resizeCallback(m_width, m_height);
+            }
+        }
         return 0;
+    }
 
     case WM_KEYDOWN:
         if (wParam == VK_ESCAPE)

@@ -35,8 +35,9 @@ bool RenderDevice::Initialize(HWND hwnd, int width, int height)
     if (!CreateDevice()) return false;
     if (!CreateCommandQueue()) return false;
     if (!CreateSwapChain(hwnd, width, height)) return false;
-    if (!CreateRenderTargets()) return false;
-    if (!CreateDepthStencil(width, height)) return false;
+    if (!CreateDescriptorHeaps()) return false;
+    if (!CreateRenderTargetViews()) return false;
+    if (!CreateDepthStencilView(width, height)) return false;
     if (!CreateCommandAllocatorsAndList()) return false;
     if (!CreateFence()) return false;
     if (!CreateSRVHeap()) return false;
@@ -133,57 +134,82 @@ void RenderDevice::EndFrame()
     );
     m_commandList->ResourceBarrier(1, &barrier);
 
-    // Close command list
-    m_commandList->Close();
+  
+    HRESULT hr = m_commandList->Close();
+    if (FAILED(hr))
+    {
+        char msg[128];
+        sprintf_s(msg, "CommandList Close FAILED hr=0x%08X\n", hr);
+        OutputDebugStringA(msg);
+    }
 
-    // Execute command list
+ 
     ID3D12CommandList* commandLists[] = { m_commandList.Get() };
     m_commandQueue->ExecuteCommandLists(1, commandLists);
 
-    // Present the frame
-    m_swapChain->Present(1, 0);  // 1 = vsync on, 0 = vsync off
+    hr = m_swapChain->Present(1, 0);  // 1 = vsync on, 0 = vsync off
+    if (FAILED(hr))
+    {
+        char msg[128];
+        sprintf_s(msg, "Present FAILED hr=0x%08X\n", hr);
+        OutputDebugStringA(msg);
 
-    // Move to next frame
+        if (hr == DXGI_ERROR_DEVICE_REMOVED)
+        {
+            HRESULT reason = m_device->GetDeviceRemovedReason();
+            sprintf_s(msg, "Device removed reason: 0x%08X\n", reason);
+            OutputDebugStringA(msg);
+        }
+    }
+
     MoveToNextFrame();
 }
 
 void RenderDevice::WaitForGPU()
 {
-    if (m_commandQueue && m_fence && m_fenceEvent)
-    {
-        // Signal and increment fence value
-        const UINT64 fenceValue = m_fenceValues[m_frameIndex];
-        m_commandQueue->Signal(m_fence.Get(), fenceValue);
-        m_fenceValues[m_frameIndex]++;
+    if (!m_commandQueue || !m_fence || !m_fenceEvent) {
+        return;
+    }   
 
-        // Wait until fence is reached
-        if (m_fence->GetCompletedValue() < fenceValue)
+    // Signal with a new value
+    const UINT64 fenceValue = m_fenceValues[m_frameIndex];
+    HRESULT hr = m_commandQueue->Signal(m_fence.Get(), fenceValue);
+    if (FAILED(hr))
+        return;
+
+    // Wait until the fence is reached
+    if (m_fence->GetCompletedValue() < fenceValue)
+    {
+        hr = m_fence->SetEventOnCompletion(fenceValue, m_fenceEvent);
+        if (SUCCEEDED(hr))
         {
-            m_fence->SetEventOnCompletion(fenceValue, m_fenceEvent);
             WaitForSingleObject(m_fenceEvent, INFINITE);
         }
     }
+
+    // Increment for next time
+    m_fenceValues[m_frameIndex]++;
 }
 
 void RenderDevice::OnResize(int width, int height)
 {
-    if (width <= 0 || height <= 0)
+    if (width <= 0 || height <= 0) {
         return;
+    }   
 
-    // Wait for GPU
+    // Wait for ALL GPU work to complete
     WaitForGPU();
 
-    // Release old resources
+    // Release resources but NOT heaps
     for (UINT i = 0; i < FrameBufferCount; ++i)
     {
         m_renderTargets[i].Reset();
     }
     m_depthStencil.Reset();
 
-    // Resize swap chain
     DXGI_SWAP_CHAIN_DESC desc = {};
     m_swapChain->GetDesc(&desc);
-    m_swapChain->ResizeBuffers(
+    HRESULT hr = m_swapChain->ResizeBuffers(
         FrameBufferCount,
         width,
         height,
@@ -191,11 +217,27 @@ void RenderDevice::OnResize(int width, int height)
         desc.Flags
     );
 
+    if (FAILED(hr))
+    {
+        char msg[128];
+        sprintf_s(msg, "OnResize: ResizeBuffers FAILED hr=0x%08X\n", hr);
+        OutputDebugStringA(msg);
+        return;
+    }
+
     m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
 
-    // Recreate render targets and depth buffer
-    CreateRenderTargets();
-    CreateDepthStencil(width, height);
+    // Reset fence values after resize to avoid sync issues
+    // The GPU is idle so safely reset
+    UINT64 nextFenceValue = m_fenceValues[m_frameIndex] + 1;
+    for (UINT i = 0; i < FrameBufferCount; ++i)
+    {
+        m_fenceValues[i] = nextFenceValue;
+    }
+
+    // Recreate views only, not heaps
+    CreateRenderTargetViews();
+    CreateDepthStencilView(width, height);
 
     // Update viewport
     m_viewport.Width = static_cast<float>(width);
@@ -367,7 +409,7 @@ bool RenderDevice::CreateSwapChain(HWND hwnd, int width, int height)
     return true;
 }
 
-bool RenderDevice::CreateRenderTargets()
+bool RenderDevice::CreateRenderTargetViews()
 {
     // Create RTV descriptor heap
     D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
@@ -407,7 +449,7 @@ bool RenderDevice::CreateRenderTargets()
     return true;
 }
 
-bool RenderDevice::CreateDepthStencil(int width, int height)
+bool RenderDevice::CreateDepthStencilView(int width, int height)
 {
     // Create DSV descriptor heap
     D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
@@ -445,7 +487,9 @@ bool RenderDevice::CreateDepthStencil(int width, int height)
         &clearValue,
         IID_PPV_ARGS(&m_depthStencil)
     );
-    if (FAILED(hr)) return false;
+    if (FAILED(hr)) {
+        return false;
+    }
 
     // Create depth stencil view
     m_device->CreateDepthStencilView(
@@ -466,7 +510,9 @@ bool RenderDevice::CreateCommandAllocatorsAndList()
             D3D12_COMMAND_LIST_TYPE_DIRECT,
             IID_PPV_ARGS(&m_commandAllocators[i])
         );
-        if (FAILED(hr)) return false;
+        if (FAILED(hr)) {
+            return false;
+        }
     }
 
     // Create command list
@@ -477,7 +523,9 @@ bool RenderDevice::CreateCommandAllocatorsAndList()
         nullptr,
         IID_PPV_ARGS(&m_commandList)
     );
-    if (FAILED(hr)) return false;
+    if (FAILED(hr)) {
+        return false;
+    }
 
     // Command lists are created in recording state, close it
     m_commandList->Close();
@@ -492,14 +540,46 @@ bool RenderDevice::CreateFence()
         D3D12_FENCE_FLAG_NONE,
         IID_PPV_ARGS(&m_fence)
     );
-    if (FAILED(hr)) return false;
+    if (FAILED(hr)) {
+        return false;
+    }
 
     m_fenceValues[m_frameIndex] = 1;
 
     // Create event for fence
     m_fenceEvent = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-    if (!m_fenceEvent)
+    if (!m_fenceEvent) {
         return false;
+    }   
+
+    return true;
+}
+
+bool RenderDevice::CreateDescriptorHeaps()
+{
+    // RTV heap created once
+    D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc = {};
+    rtvHeapDesc.NumDescriptors = FrameBufferCount;
+    rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+    rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+
+    HRESULT hr = m_device->CreateDescriptorHeap(&rtvHeapDesc, IID_PPV_ARGS(&m_rtvHeap));
+    if (FAILED(hr)) {
+        return false;
+    }
+
+    m_rtvDescriptorSize = m_device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+
+    // DSV heap created once
+    D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
+    dsvHeapDesc.NumDescriptors = 1;
+    dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+    dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+
+    hr = m_device->CreateDescriptorHeap(&dsvHeapDesc, IID_PPV_ARGS(&m_dsvHeap));
+    if (FAILED(hr)) {
+        return false;
+    }
 
     return true;
 }
@@ -508,16 +588,40 @@ void RenderDevice::MoveToNextFrame()
 {
     // Signal fence with current value
     const UINT64 currentFenceValue = m_fenceValues[m_frameIndex];
-    m_commandQueue->Signal(m_fence.Get(), currentFenceValue);
+    char msg[128];
+
+    HRESULT hr = m_commandQueue->Signal(m_fence.Get(), currentFenceValue);
+    if (FAILED(hr))
+    {
+        sprintf_s(msg, "MoveToNextFrame: Signal FAILED hr=0x%08X\n", hr);
+        OutputDebugStringA(msg);
+    }
 
     // Move to next frame
     m_frameIndex = m_swapChain->GetCurrentBackBufferIndex();
-
+  
     // Wait if next frame is not ready yet
-    if (m_fence->GetCompletedValue() < m_fenceValues[m_frameIndex])
+    UINT64 completedValue = m_fence->GetCompletedValue();
+    
+    if (completedValue < m_fenceValues[m_frameIndex])
     {
-        m_fence->SetEventOnCompletion(m_fenceValues[m_frameIndex], m_fenceEvent);
-        WaitForSingleObject(m_fenceEvent, INFINITE);
+        hr = m_fence->SetEventOnCompletion(m_fenceValues[m_frameIndex], m_fenceEvent);
+        if (FAILED(hr))
+        {
+            sprintf_s(msg, "MoveToNextFrame: SetEventOnCompletion FAILED hr=0x%08X\n", hr);
+            OutputDebugStringA(msg);
+        }
+
+        DWORD waitResult = WaitForSingleObject(m_fenceEvent, 5000);  // 5 second timeout
+        if (waitResult == WAIT_TIMEOUT)
+        {
+            OutputDebugStringA("MoveToNextFrame: WAIT TIMED OUT!\n");
+        }
+        else if (waitResult == WAIT_FAILED)
+        {
+            sprintf_s(msg, "MoveToNextFrame: WAIT FAILED error=%lu\n", GetLastError());
+            OutputDebugStringA(msg);
+        }
     }
 
     // Set fence value for next frame

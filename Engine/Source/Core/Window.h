@@ -2,9 +2,12 @@
 
 #include <windows.h>
 #include <string>
+#include <functional>
 
 // Forward declaration
 class Input;
+
+using ResizeCallback = std::function<void(int width, int height)>;
 
 // Win32 window wrapper
 // DEPENDS ON: Nothing, just Win32 API
@@ -39,7 +42,7 @@ public:
 
     // Update window title (useful for FPS display)
     void SetTitle(const wchar_t* title);
-
+    void SetResizeCallback(ResizeCallback callback) { m_resizeCallback = callback; }
 private:
     // Win32 window callback
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -54,4 +57,5 @@ private:
     bool m_isActive;
     std::wstring m_title;
     Input* m_input;
+    ResizeCallback m_resizeCallback;
 };

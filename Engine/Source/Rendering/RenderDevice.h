@@ -52,10 +52,11 @@ private:
     bool CreateDevice();
     bool CreateCommandQueue();
     bool CreateSwapChain(HWND hwnd, int width, int height);
-    bool CreateRenderTargets();
-    bool CreateDepthStencil(int width, int height);
+    bool CreateRenderTargetViews();
+    bool CreateDepthStencilView(int width, int height);
     bool CreateCommandAllocatorsAndList();
     bool CreateFence();
+    bool CreateDescriptorHeaps();
 
     void MoveToNextFrame();
 
