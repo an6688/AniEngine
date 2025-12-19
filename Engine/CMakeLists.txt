@@ -27,16 +27,11 @@ set_target_properties(${PROJECT_NAME} PROPERTIES
     VS_GLOBAL_CharacterSet "Unicode"
 )
 
-# Include directories
-target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/Source
-    ${CMAKE_SOURCE_DIR}/ThirdParty
-)
-
-# Link DirectX 12 libraries
+# Link DirectX 12 libraries and dependencies
 target_link_libraries(${PROJECT_NAME} PRIVATE
     fastgltf::fastgltf
     glm::glm
+    imgui
     d3d12.lib
     dxgi.lib
     d3dcompiler.lib

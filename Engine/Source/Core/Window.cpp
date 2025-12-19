@@ -1,5 +1,6 @@
 #include "Window.h"
 #include "Input.h"
+#include "ImGuiManager.h"
 
 Window::Window()
     : m_hwnd(nullptr)
@@ -133,6 +134,14 @@ LRESULT CALLBACK Window::WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
 
 LRESULT Window::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
+    // Let ImGui process messages first
+    if (m_imguiManager && m_imguiManager->ProcessMessage(m_hwnd, msg, wParam, lParam))
+    {
+        // ImGui consumed this message
+        // For mouse/keyboard, maybe still want to process it seperately 
+        // but some messages (like text input) should be fully consumed
+    }
+
     // Forward input messages to input handler
     if (m_input)
     {

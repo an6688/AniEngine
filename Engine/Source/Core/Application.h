@@ -8,10 +8,13 @@
 #include "Rendering/TextureManager.h"
 #include "Rendering/Material.h"
 #include "Rendering/ModelLoader.h"
+#include "ImGuiManager.h"
+
 
 class RenderDevice;
 class Renderer;
 class Camera;
+class ImGuiManager;
 
 class Application
 {
@@ -29,6 +32,7 @@ private:
     void UpdateCameraInput();
     void UpdateWindowTitle();
     void FrameModel();
+    void DrawDebugUI();
 
 private:
     Window m_window;
@@ -39,6 +43,7 @@ private:
     Renderer* m_renderer;
     Camera* m_camera;
     TextureManager* m_textureManager;
+    ImGuiManager* m_imguiManager;
 
     // Loaded model data
     LoadedModel m_loadedModel;

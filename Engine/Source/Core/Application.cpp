@@ -8,12 +8,14 @@
 #include <sstream>
 #include <iomanip>
 #include <glm/gtc/matrix_transform.hpp>
+#include <imgui.h>
 
 Application::Application()
 	: m_renderDevice(nullptr)
 	, m_renderer(nullptr)
 	, m_camera(nullptr)
 	, m_textureManager(nullptr)
+	, m_imguiManager(nullptr)
 	, m_isRunning(false)
 	, m_titleUpdateTimer(0.0f)
 	, m_modelRotation(0.0f)
@@ -44,6 +46,12 @@ Application::~Application()
 		delete m_textureManager;
 		m_textureManager = nullptr;
 	}
+	if (m_imguiManager)
+	{
+		m_imguiManager->Shutdown();
+		delete m_imguiManager;
+		m_imguiManager = nullptr;
+	}
 
 	if (m_renderDevice)
 	{
@@ -71,21 +79,25 @@ bool Application::Initialize()
 		return false;
 	}
 
-	// Create texture manager BEFORE renderer
+	m_imguiManager = new ImGuiManager();
+	if (!m_imguiManager->Initialize(m_window.GetHandle(), m_renderDevice))
+	{
+		return false;
+	}
+	m_window.SetImGuiManager(m_imguiManager);
+
 	m_textureManager = new TextureManager();
 	if (!m_textureManager->Initialize(m_renderDevice))
 	{
 		return false;
 	}
 
-	// Create and initialize renderer
 	m_renderer = new Renderer();
 	if (!m_renderer->Initialize(m_renderDevice, m_textureManager))
 	{
 		return false;
 	}
 
-	// Create camera
 	m_camera = new Camera();
 	m_camera->Initialize(1280.0f / 720.0f);
 	// Set up resize callback
@@ -94,7 +106,7 @@ bool Application::Initialize()
 		m_pendingWidth = width;
 		m_pendingHeight = height;
 		});
-	// Load test model - change this path to load different models
+
 	const char* modelPath = "E:/repos/glTF-Sample-Assets-main/glTF-Sample-Assets-main/Models/StainedGlassLamp/glTF/StainedGlassLamp.gltf";
 
 	ModelLoader loader;
@@ -152,6 +164,35 @@ void Application::FrameModel()
 	OutputDebugStringA(msg);
 }
 
+void Application::DrawDebugUI()
+{
+	// Performance overlay
+	ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
+	ImGui::SetNextWindowSize(ImVec2(300, 150), ImGuiCond_FirstUseEver);
+
+	if (ImGui::Begin("Stats"))
+	{
+		ImGui::Text("FPS: %.1f", m_timer.GetFPS());
+		ImGui::Text("Frame Time: %.3f ms", m_timer.GetDeltaTime() * 1000.0f);
+		ImGui::Separator();
+		ImGui::Text("Mesh Instances: %zu", m_loadedModel.meshInstances.size());
+		ImGui::Text("Materials: %zu", m_loadedModel.materials.size());
+		ImGui::Text("Textures: %zu", m_loadedModel.textures.size());
+		ImGui::Separator();
+		ImGui::Text("Camera Distance: %.2f", m_camera->GetDistance());
+
+		glm::vec3 camPos = m_camera->GetPosition();
+		ImGui::Text("Camera Pos: (%.2f, %.2f, %.2f)", camPos.x, camPos.y, camPos.z);
+	}
+	ImGui::End();
+
+	// This is just generic stuff, add more interesting info like:
+	// - Material inspector
+	// - Scene hierarchy
+	// - Render settings
+	// - etc.
+}
+
 void Application::Run()
 {
 	while (m_isRunning)
@@ -176,7 +217,12 @@ void Application::Shutdown()
 	{
 		m_renderer->Shutdown();
 	}
-
+	if (m_imguiManager)
+	{
+		m_imguiManager->Shutdown();
+		delete m_imguiManager;
+		m_imguiManager = nullptr;
+	}
 	if (m_renderDevice)
 	{
 		m_renderDevice->Shutdown();
@@ -200,11 +246,19 @@ void Application::Update()
 	m_camera->Update(deltaTime);
 
 	UpdateWindowTitle();
+	m_imguiManager->BeginFrame();
+
+	DrawDebugUI();
 }
 
 
 void Application::UpdateCameraInput()
 {
+	// Prevent camera movement when mouse is over imgui
+	if (m_imguiManager->WantCaptureMouse()) {
+		return;
+	}
+
 	float deltaTime = m_timer.GetDeltaTime();
 
 	// =========================================================================
@@ -262,9 +316,9 @@ void Application::UpdateCameraInput()
 		float moveSpeed = m_camera->GetDistance() * deltaTime * 0.5f;
 
 		// Shift for faster movement
-		if (m_input.IsKeyDown(VK_SHIFT))
+		if (m_input.IsKeyDown(VK_SHIFT)) {
 			moveSpeed *= 3.0f;
-
+		}
 		if (m_input.IsKeyDown('W')) m_camera->PanForward(moveSpeed * 50.0f);
 		if (m_input.IsKeyDown('S')) m_camera->PanForward(-moveSpeed * 50.0f);
 		if (m_input.IsKeyDown('A')) m_camera->Pan(-moveSpeed * 50.0f, 0.0f);
@@ -302,6 +356,8 @@ void Application::Render()
 	}
 
 	m_renderer->EndFrame();
+	m_imguiManager->Render();
+
 	m_renderDevice->EndFrame();
 }
 
