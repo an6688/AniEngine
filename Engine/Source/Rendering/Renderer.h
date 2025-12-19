@@ -74,7 +74,7 @@ public:
 
 private:
     bool CreateCubeGeometry();
-    bool CreateCubePipeline();
+    bool CreateSimplePipeline();
     bool CreatePBRPipeline();
 
     // Build a contiguous descriptor table for a material's textures
@@ -102,10 +102,19 @@ private:
     // PBR pipeline
     Microsoft::WRL::ComPtr<ID3D12RootSignature> m_pbrRootSignature;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_pbrPipelineState;
+
+    // Per instance constant buffers (ring buffer style)
     Microsoft::WRL::ComPtr<ID3D12Resource> m_transformConstantBuffer;
     Microsoft::WRL::ComPtr<ID3D12Resource> m_materialConstantBuffer;
     UINT8* m_transformConstantBufferBegin;
     UINT8* m_materialConstantBufferBegin;
+
+    // Track current offset in the ring buffer
+    UINT m_currentTransformOffset;
+    UINT m_currentMaterialOffset;
+    const UINT MAX_INSTANCES_PER_FRAME = 1024;
+    const UINT TRANSFORM_CB_ALIGNMENT = 256;  // D3D12 requires 256-byte alignment
+    const UINT MATERIAL_CB_ALIGNMENT = 256;
 
     // Material descriptor table cache
     // Maps material pointer to starting SRV index of its 5-texture block

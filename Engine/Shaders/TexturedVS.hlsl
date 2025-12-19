@@ -1,11 +1,8 @@
-// TexturedVS.hlsl - Vertex shader for textured meshes
+// TexturedVS.hlsl - Simple vertex shader for cube fallback
 
 cbuffer TransformBuffer : register(b0)
 {
     float4x4 worldViewProjection;
-    float4x4 world;
-    float3 cameraPosition;
-    float padding;
 };
 
 struct VSInput
@@ -29,16 +26,9 @@ VSOutput main(VSInput input)
 {
     VSOutput output;
     
-    // Transform position
     output.position = mul(float4(input.position, 1.0f), worldViewProjection);
-    
-    // World position for lighting
-    output.worldPos = mul(float4(input.position, 1.0f), world).xyz;
-    
-    // Transform normal to world space (simplified - assumes uniform scale)
-    output.normal = normalize(mul(float4(input.normal, 0.0f), world).xyz);
-    
-    // Pass through texcoord and color
+    output.worldPos = input.position; // Not transformed for simple cube
+    output.normal = input.normal;
     output.texCoord = input.texCoord;
     output.color = input.color;
     

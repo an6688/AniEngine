@@ -20,6 +20,8 @@ Renderer::Renderer()
     , m_constantBufferDataBegin(nullptr)
     , m_transformConstantBufferBegin(nullptr)
     , m_materialConstantBufferBegin(nullptr)
+    , m_currentTransformOffset(0)
+    , m_currentMaterialOffset(0)
     , m_cubeRotation(0.0f)
 {
 }
@@ -37,7 +39,7 @@ bool Renderer::Initialize(RenderDevice* device, TextureManager* textureManager)
     if (!CreateCubeGeometry())
         return false;
 
-    if (!CreateCubePipeline())
+    if (!CreateSimplePipeline())
         return false;
 
     if (!CreatePBRPipeline())
@@ -73,6 +75,9 @@ void Renderer::Shutdown()
 
 void Renderer::BeginFrame()
 {
+    // Reset ring buffer offsets at the start of each frame
+    m_currentTransformOffset = 0;
+    m_currentMaterialOffset = 0;
 }
 
 void Renderer::EndFrame()
@@ -177,34 +182,47 @@ bool Renderer::CreateCubeGeometry()
     return true;
 }
 
-bool Renderer::CreateCubePipeline()
+bool Renderer::CreateSimplePipeline()
 {
     CD3DX12_ROOT_PARAMETER rootParameter;
     rootParameter.InitAsConstantBufferView(0);
 
     CD3DX12_ROOT_SIGNATURE_DESC rootSignatureDesc;
-    rootSignatureDesc.Init(1, &rootParameter, 0, nullptr,
+    rootSignatureDesc.Init(
+        1, &rootParameter,
+        0, nullptr,
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     Microsoft::WRL::ComPtr<ID3DBlob> signature;
     Microsoft::WRL::ComPtr<ID3DBlob> error;
 
-    HRESULT hr = D3D12SerializeRootSignature(&rootSignatureDesc,
-        D3D_ROOT_SIGNATURE_VERSION_1, &signature, &error);
-    if (FAILED(hr)) return false;
+    HRESULT hr = D3D12SerializeRootSignature(
+        &rootSignatureDesc,
+        D3D_ROOT_SIGNATURE_VERSION_1,
+        &signature, &error);
 
-    hr = m_device->GetDevice()->CreateRootSignature(0,
-        signature->GetBufferPointer(), signature->GetBufferSize(),
+    if (FAILED(hr))
+    {
+        if (error) OutputDebugStringA((char*)error->GetBufferPointer());
+        return false;
+    }
+
+    hr = m_device->GetDevice()->CreateRootSignature(
+        0,
+        signature->GetBufferPointer(),
+        signature->GetBufferSize(),
         IID_PPV_ARGS(&m_cubeRootSignature));
     if (FAILED(hr)) return false;
 
     Shader vertexShader;
     Shader pixelShader;
 
-    if (!vertexShader.CompileFromFile(L"Shaders/CubeVertexShader.hlsl", "main", "vs_5_1"))
+    if (!vertexShader.CompileFromFile(L"Shaders/TexturedVS.hlsl", "main", "vs_5_1")) {
         return false;
-    if (!pixelShader.CompileFromFile(L"Shaders/CubePixelShader.hlsl", "main", "ps_5_1"))
+    }
+    if (!pixelShader.CompileFromFile(L"Shaders/TexturedPS.hlsl", "main", "ps_5_1")) {
         return false;
+    }
 
     UINT layoutCount;
     D3D12_INPUT_ELEMENT_DESC* inputLayout = Vertex::GetInputLayout(layoutCount);
@@ -228,20 +246,25 @@ bool Renderer::CreateCubePipeline()
     hr = m_device->GetDevice()->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_cubePipelineState));
     if (FAILED(hr)) return false;
 
+    // Constant buffer
     const UINT constantBufferSize = (sizeof(glm::mat4) + 255) & ~255;
-    CD3DX12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(constantBufferSize);
-    CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
+    CD3DX12_RESOURCE_DESC constantBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(constantBufferSize);
 
+    CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_UPLOAD);
     hr = m_device->GetDevice()->CreateCommittedResource(
-        &uploadHeap, D3D12_HEAP_FLAG_NONE, &bufferDesc,
-        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+        &heapProps,
+        D3D12_HEAP_FLAG_NONE,
+        &constantBufferDesc,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
         IID_PPV_ARGS(&m_constantBuffer));
     if (FAILED(hr)) return false;
 
     CD3DX12_RANGE readRange(0, 0);
     hr = m_constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_constantBufferDataBegin));
+    if (FAILED(hr)) return false;
 
-    return SUCCEEDED(hr);
+    return true;
 }
 
 bool Renderer::CreatePBRPipeline()
@@ -339,13 +362,14 @@ bool Renderer::CreatePBRPipeline()
         return false;
     }
 
-    // Create constant buffers
-    const UINT transformBufferSize = (sizeof(TransformConstants) + 255) & ~255;
-    const UINT materialBufferSize = (sizeof(PBRMaterialConstants) + 255) & ~255;
+    // Create LARGE constant buffers for ring-buffer style per-instance data
+    // Each instance needs its own slot in the buffer, aligned to 256 bytes
+    const UINT transformBufferSize = TRANSFORM_CB_ALIGNMENT * MAX_INSTANCES_PER_FRAME;
+    const UINT materialBufferSize = MATERIAL_CB_ALIGNMENT * MAX_INSTANCES_PER_FRAME;
 
     CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
 
-    // Transform constant buffer
+    // Transform constant buffer (large enough for all instances)
     CD3DX12_RESOURCE_DESC transformBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(transformBufferSize);
     hr = m_device->GetDevice()->CreateCommittedResource(
         &uploadHeap, D3D12_HEAP_FLAG_NONE, &transformBufferDesc,
@@ -357,7 +381,7 @@ bool Renderer::CreatePBRPipeline()
     hr = m_transformConstantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&m_transformConstantBufferBegin));
     if (FAILED(hr)) return false;
 
-    // Material constant buffer
+    // Material constant buffer (large enough for all instances)
     CD3DX12_RESOURCE_DESC materialBufferDesc = CD3DX12_RESOURCE_DESC::Buffer(materialBufferSize);
     hr = m_device->GetDevice()->CreateCommittedResource(
         &uploadHeap, D3D12_HEAP_FLAG_NONE, &materialBufferDesc,
@@ -501,6 +525,13 @@ void Renderer::DrawMeshTextured(Mesh* mesh, const glm::mat4& transform, Camera* 
     if (!mesh || !mesh->IsValid() || !camera)
         return;
 
+    // Check if we've exceeded our per frame instance limit
+    if (m_currentTransformOffset >= MAX_INSTANCES_PER_FRAME)
+    {
+        OutputDebugStringA("Warning: Exceeded MAX_INSTANCES_PER_FRAME!\n");
+        return;
+    }
+
     ID3D12GraphicsCommandList* commandList = m_device->GetCommandList();
 
     // Set pipeline and root signature
@@ -517,7 +548,7 @@ void Renderer::DrawMeshTextured(Mesh* mesh, const glm::mat4& transform, Camera* 
     glm::mat4 worldViewProjection = projection * view * transform;
     glm::mat4 worldInverseTranspose = glm::transpose(glm::inverse(transform));
 
-    // Update transform constants
+    // Update transform constants at CURRENT OFFSET in the ring buffer
     TransformConstants transformConsts;
     transformConsts.worldViewProjection = glm::transpose(worldViewProjection);
     transformConsts.world = glm::transpose(transform);
@@ -525,12 +556,14 @@ void Renderer::DrawMeshTextured(Mesh* mesh, const glm::mat4& transform, Camera* 
     transformConsts.cameraPosition = camera->GetPosition();
     transformConsts.padding = 0.0f;
 
-    memcpy(m_transformConstantBufferBegin, &transformConsts, sizeof(TransformConstants));
+    // Write to the current slot in the ring buffer
+    UINT transformByteOffset = m_currentTransformOffset * TRANSFORM_CB_ALIGNMENT;
+    memcpy(m_transformConstantBufferBegin + transformByteOffset, &transformConsts, sizeof(TransformConstants));
 
     // Get material from mesh
     auto material = mesh->GetMaterial();
 
-    // Update material constants
+    // Update material constants at CURRENT OFFSET
     PBRMaterialConstants matConsts = {};
 
     if (material)
@@ -576,11 +609,16 @@ void Renderer::DrawMeshTextured(Mesh* mesh, const glm::mat4& transform, Camera* 
         matConsts.hasEmissiveTexture = 0.0f;
     }
 
-    memcpy(m_materialConstantBufferBegin, &matConsts, sizeof(PBRMaterialConstants));
+    // Write material to the current slot in the ring buffer
+    UINT materialByteOffset = m_currentMaterialOffset * MATERIAL_CB_ALIGNMENT;
+    memcpy(m_materialConstantBufferBegin + materialByteOffset, &matConsts, sizeof(PBRMaterialConstants));
 
-    // Set constant buffers
-    commandList->SetGraphicsRootConstantBufferView(0, m_transformConstantBuffer->GetGPUVirtualAddress());
-    commandList->SetGraphicsRootConstantBufferView(1, m_materialConstantBuffer->GetGPUVirtualAddress());
+    // Set constant buffers with OFFSETS into the ring buffer
+    D3D12_GPU_VIRTUAL_ADDRESS transformCBAddress = m_transformConstantBuffer->GetGPUVirtualAddress() + transformByteOffset;
+    D3D12_GPU_VIRTUAL_ADDRESS materialCBAddress = m_materialConstantBuffer->GetGPUVirtualAddress() + materialByteOffset;
+
+    commandList->SetGraphicsRootConstantBufferView(0, transformCBAddress);
+    commandList->SetGraphicsRootConstantBufferView(1, materialCBAddress);
 
     // Set mesh buffers and draw
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
@@ -591,6 +629,10 @@ void Renderer::DrawMeshTextured(Mesh* mesh, const glm::mat4& transform, Camera* 
     commandList->IASetIndexBuffer(&ibv);
 
     commandList->DrawIndexedInstanced(mesh->GetIndexCount(), 1, 0, 0, 0);
+
+    // Advance to next slot for the next draw call
+    m_currentTransformOffset++;
+    m_currentMaterialOffset++;
 }
 
 void Renderer::UpdateConstantBuffer(const glm::mat4& matrix)

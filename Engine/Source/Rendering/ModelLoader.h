@@ -3,28 +3,38 @@
 #include <string>
 #include <vector>
 #include <memory>
-#include <unordered_map>
-#include <cstdint>
 #include <glm/glm.hpp>
 
-class RenderDevice;
 class Mesh;
-class Texture;
+class RenderDevice;
 class TextureManager;
+class Texture;
 struct Material;
 
-// Helper struct for loaded model data
+// A mesh instance with its world transform
+struct MeshInstance
+{
+    std::shared_ptr<Mesh> mesh;
+    glm::mat4 transform;  // World transform from scene hierarchy
+};
+
 struct LoadedModel
 {
-    std::vector<std::unique_ptr<Mesh>> meshes;
+    // Mesh instances. each has its own transform from the scene
+    std::vector<MeshInstance> meshInstances;
+
+    // Shared meshes (for instancing, mesh data without transforms)
+    std::vector<std::shared_ptr<Mesh>> meshes;
+
+    // Materials and textures
     std::vector<std::shared_ptr<Material>> materials;
     std::vector<std::shared_ptr<Texture>> textures;
 
-    // Bounding box info for camera framing
-    glm::vec3 boundsMin = glm::vec3(0.0f);
-    glm::vec3 boundsMax = glm::vec3(0.0f);
-    glm::vec3 center = glm::vec3(0.0f);
-    float size = 1.0f;
+    // Scene bounds (in world space, after transforms applied)
+    glm::vec3 boundsMin;
+    glm::vec3 boundsMax;
+    glm::vec3 center;
+    float size;
 };
 
 class ModelLoader
@@ -33,13 +43,11 @@ public:
     ModelLoader();
     ~ModelLoader();
 
-    // Set texture manager for loading/caching textures
     void SetTextureManager(TextureManager* textureManager);
 
-    // Load a complete model with meshes, materials, and textures
     bool LoadGLTF(const char* filepath, RenderDevice* device, LoadedModel& outModel);
 
-    // Legacy overload for backwards compatibility (meshes only)
+    // Legacy interface, loads without transforms
     bool LoadGLTF(const char* filepath, RenderDevice* device,
         std::vector<std::unique_ptr<Mesh>>& outMeshes);
 

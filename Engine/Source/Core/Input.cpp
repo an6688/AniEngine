@@ -79,15 +79,13 @@ void Input::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         break;
 
     case WM_KEYDOWN:
-        if (wParam < 256) {
-            m_keys[wParam] = true;
-        }  
+    case WM_SYSKEYDOWN:
+        if (wParam < 256) m_keys[wParam] = true;
         break;
 
     case WM_KEYUP:
-        if (wParam < 256) {
-            m_keys[wParam] = false;
-        }
+    case WM_SYSKEYUP:
+        if (wParam < 256) m_keys[wParam] = false;
         break;
     }
 }

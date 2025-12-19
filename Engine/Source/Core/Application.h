@@ -49,5 +49,7 @@ private:
     float m_modelRotation;
 
     bool m_isRunning;
+    bool m_fKeyWasDown = false;
+
     float m_titleUpdateTimer;
 };
