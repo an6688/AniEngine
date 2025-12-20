@@ -33,6 +33,7 @@ private:
     void UpdateWindowTitle();
     void FrameModel();
     void DrawDebugUI();
+    void LoadModel(const std::string& path);
 
 private:
     Window m_window;
@@ -44,6 +45,7 @@ private:
     Camera* m_camera;
     TextureManager* m_textureManager;
     ImGuiManager* m_imguiManager;
+    RenderSettings m_renderSettings;
 
     // Loaded model data
     LoadedModel m_loadedModel;

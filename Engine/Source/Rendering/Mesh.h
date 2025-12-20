@@ -37,6 +37,10 @@ public:
 
     // Get index count for draw calls
     uint32_t GetIndexCount() const { return m_indexCount; }
+    uint32_t GetVertexCount() const { return static_cast<uint32_t>(m_vertices.size()); }
+    const std::string& GetName() const { return m_name; }
+
+    void SetName(const std::string& name) { m_name = name; }
 
     // Check if mesh is valid
     bool IsValid() const { return m_vertexBuffer && m_indexBuffer; }
@@ -76,6 +80,8 @@ private:
     std::vector<Vertex> m_vertices;
     std::vector<uint32_t> m_indices;
     std::shared_ptr<Material> m_material;
+    std::string m_name;
+
     glm::mat4 m_transform = glm::mat4(1.0f);
 
     // Local space bounding box

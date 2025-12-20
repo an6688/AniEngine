@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <glm/gtc/matrix_transform.hpp>
 #include <imgui.h>
+#include "ImGuiManager.h"
 
 Application::Application()
 	: m_renderDevice(nullptr)
@@ -85,6 +86,11 @@ bool Application::Initialize()
 		return false;
 	}
 	m_window.SetImGuiManager(m_imguiManager);
+
+	// Set up model loading callback
+	m_imguiManager->SetModelLoadCallback([this](const std::string& path) {
+		LoadModel(path);
+		});
 
 	m_textureManager = new TextureManager();
 	if (!m_textureManager->Initialize(m_renderDevice))
@@ -193,6 +199,35 @@ void Application::DrawDebugUI()
 	// - etc.
 }
 
+void Application::LoadModel(const std::string& path)
+{
+	// Clear existing model
+	m_loadedModel.meshes.clear();
+	m_loadedModel.meshInstances.clear();
+	m_loadedModel.materials.clear();
+	m_loadedModel.textures.clear();
+
+	ModelLoader loader;
+	loader.SetTextureManager(m_textureManager);
+
+	if (loader.LoadGLTF(path.c_str(), m_renderDevice, m_loadedModel))
+	{
+		char msg[512];
+		sprintf_s(msg, "Loaded: %s (%zu instances, %zu materials)\n",
+			path.c_str(),
+			m_loadedModel.meshInstances.size(),
+			m_loadedModel.materials.size());
+		OutputDebugStringA(msg);
+
+		FrameModel();
+	}
+	else
+	{
+		OutputDebugStringA("Failed to load model\n");
+		MessageBoxA(nullptr, "Failed to load model!", "Error", MB_OK | MB_ICONERROR);
+	}
+}
+
 void Application::Run()
 {
 	while (m_isRunning)
@@ -233,6 +268,7 @@ void Application::Shutdown()
 
 void Application::Update()
 {
+	// Handle deferred resize
 	if (m_resizePending && m_pendingWidth > 0 && m_pendingHeight > 0)
 	{
 		m_renderDevice->OnResize(m_pendingWidth, m_pendingHeight);
@@ -244,18 +280,18 @@ void Application::Update()
 
 	UpdateCameraInput();
 	m_camera->Update(deltaTime);
-
 	UpdateWindowTitle();
 	m_imguiManager->BeginFrame();
 
-	DrawDebugUI();
+	// Draw all UI panels (replaces DrawDebugUI)
+	m_imguiManager->DrawUI(&m_timer, m_camera, &m_loadedModel, m_renderSettings);
 }
 
 
 void Application::UpdateCameraInput()
 {
 	// Prevent camera movement when mouse is over imgui
-	if (m_imguiManager->WantCaptureMouse()) {
+	if (m_imguiManager && m_imguiManager->WantCaptureMouse()) {
 		return;
 	}
 
