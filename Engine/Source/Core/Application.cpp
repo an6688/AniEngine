@@ -129,9 +129,7 @@ bool Application::Initialize()
 void Application::FrameScene()
 {
 	Scene* scene = m_sceneManager.GetScene();
-	if (!scene || scene->objects.empty())
-	{
-		m_camera->FrameBounds(glm::vec3(0.0f), 2.0f);
+	if (!scene || scene->objects.empty()) {
 		return;
 	}
 
@@ -139,15 +137,10 @@ void Application::FrameScene()
 	scene->GetWorldBounds(boundsMin, boundsMax);
 
 	glm::vec3 center = (boundsMin + boundsMax) * 0.5f;
-	glm::vec3 extents = (boundsMax - boundsMin) * 0.5f;
+	float radius = glm::length(boundsMax - boundsMin) * 0.5f;
 
-	// Use max extent for a stable radius
-	float radius = glm::compMax(extents);
-
-	// Safety padding
-	radius *= 1.2f;
-
-	m_camera->FrameBounds(center, radius);
+	m_camera->SetTarget(center);
+	m_camera->SetDistance(radius * 2.5f);
 }
 
 void Application::DrawDebugUI()
