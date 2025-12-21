@@ -1,24 +1,23 @@
 #include "ImGuiManager.h"
 #include "Rendering/RenderDevice.h"
-#include "Rendering/ModelLoader.h"
-#include "Rendering/Material.h"
 #include "Rendering/Camera.h"
 #include "Rendering/Mesh.h"
+#include "Rendering/Material.h"
+#include "Scene/SceneManager.h"
+#include "Scene/Scene.h"
 #include "Timer.h"
 
 #include <imgui.h>
 #include <imgui_impl_win32.h>
 #include <imgui_impl_dx12.h>
 #include <commdlg.h>
-#include <shobjidl.h>
+#include <glm/gtc/type_ptr.hpp>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 ImGuiManager::ImGuiManager()
     : m_device(nullptr)
     , m_initialized(false)
-    , m_selectedMaterialIndex(-1)
-    , m_selectedInstanceIndex(-1)
     , m_currentTheme(0) {
 }
 
@@ -101,22 +100,29 @@ void ImGuiManager::BeginFrame() {
     ImGui::NewFrame();
 }
 
-void ImGuiManager::DrawUI(const Timer* timer, const Camera* camera, LoadedModel* model, RenderSettings& settings) {
+void ImGuiManager::DrawUI(
+    const Timer* timer,
+    const Camera* camera,
+    SceneManager* sceneManager,
+    RenderSettings& settings) {
+
     if (!m_initialized) {
         return;
     }
 
     SetupDocking();
-    DrawMenuBar();
+    DrawMenuBar(sceneManager);
+
+    const Scene* scene = sceneManager ? sceneManager->GetScene() : nullptr;
 
     if (showStatsPanel) {
-        DrawStatsPanel(timer, camera, model);
+        DrawStatsPanel(timer, camera, scene);
     }
     if (showScenePanel) {
-        DrawSceneHierarchyPanel(model);
+        DrawSceneHierarchyPanel(sceneManager);
     }
-    if (showMaterialPanel) {
-        DrawMaterialInspector(model);
+    if (showInspectorPanel) {
+        DrawInspectorPanel(sceneManager);
     }
     if (showRenderSettingsPanel) {
         DrawRenderSettingsPanel(settings);
@@ -197,11 +203,28 @@ void ImGuiManager::SetupDocking() {
     ImGui::End();
 }
 
-void ImGuiManager::DrawMenuBar() {
+void ImGuiManager::DrawMenuBar(SceneManager* sceneManager) {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
-            if (ImGui::MenuItem("Load Model...", "Ctrl+O")) {
-                OpenFileDialog();
+            if (ImGui::MenuItem("New Scene", "Ctrl+N")) {
+                if (m_newSceneCallback) {
+                    m_newSceneCallback();
+                }
+            }
+            if (ImGui::MenuItem("Open Scene...", "Ctrl+O")) {
+                OpenSceneFileDialog();
+            }
+            if (ImGui::MenuItem("Save Scene", "Ctrl+S")) {
+                if (m_saveSceneCallback) {
+                    m_saveSceneCallback();
+                }
+            }
+            if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S")) {
+                SaveSceneFileDialog();
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Add Model...", "Ctrl+M")) {
+                OpenModelFileDialog();
             }
             ImGui::Separator();
             if (ImGui::MenuItem("Exit", "Alt+F4")) {
@@ -210,10 +233,32 @@ void ImGuiManager::DrawMenuBar() {
             ImGui::EndMenu();
         }
 
+        if (ImGui::BeginMenu("Edit")) {
+            bool hasSelection = sceneManager && sceneManager->GetSelectedObject();
+
+            if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, hasSelection)) {
+                if (sceneManager) {
+                    sceneManager->DuplicateObject(sceneManager->GetSelectedIndex());
+                }
+            }
+            if (ImGui::MenuItem("Delete", "Delete", false, hasSelection)) {
+                if (sceneManager) {
+                    sceneManager->RemoveObject(sceneManager->GetSelectedIndex());
+                }
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("Frame Scene", "F")) {
+                if (m_frameSceneCallback) {
+                    m_frameSceneCallback();
+                }
+            }
+            ImGui::EndMenu();
+        }
+
         if (ImGui::BeginMenu("View")) {
             ImGui::MenuItem("Stats", nullptr, &showStatsPanel);
             ImGui::MenuItem("Scene Hierarchy", nullptr, &showScenePanel);
-            ImGui::MenuItem("Material Inspector", nullptr, &showMaterialPanel);
+            ImGui::MenuItem("Inspector", nullptr, &showInspectorPanel);
             ImGui::MenuItem("Render Settings", nullptr, &showRenderSettingsPanel);
             ImGui::Separator();
             ImGui::MenuItem("ImGui Demo", nullptr, &showDemoWindow);
@@ -233,30 +278,21 @@ void ImGuiManager::DrawMenuBar() {
             ImGui::EndMenu();
         }
 
+        // Show scene name and dirty state in menu bar
+        if (sceneManager) {
+            ImGui::Separator();
+            std::string sceneLabel = sceneManager->GetSceneName();
+            if (sceneManager->HasUnsavedChanges()) {
+                sceneLabel += " *";
+            }
+            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%s", sceneLabel.c_str());
+        }
+
         ImGui::EndMainMenuBar();
     }
 }
 
-void ImGuiManager::OpenFileDialog() {
-    OPENFILENAMEA ofn = {};
-    char filename[MAX_PATH] = "";
-
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = nullptr;
-    ofn.lpstrFilter = "glTF Files (*.gltf;*.glb)\0*.gltf;*.glb\0All Files (*.*)\0*.*\0";
-    ofn.lpstrFile = filename;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrTitle = "Load Model";
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
-
-    if (GetOpenFileNameA(&ofn)) {
-        if (m_modelLoadCallback) {
-            m_modelLoadCallback(std::string(filename));
-        }
-    }
-}
-
-void ImGuiManager::DrawStatsPanel(const Timer* timer, const Camera* camera, const LoadedModel* model) {
+void ImGuiManager::DrawStatsPanel(const Timer* timer, const Camera* camera, const Scene* scene) {
     ImGui::Begin("Stats", &showStatsPanel);
 
     ImGui::Text("Performance");
@@ -268,14 +304,19 @@ void ImGuiManager::DrawStatsPanel(const Timer* timer, const Camera* camera, cons
 
     ImGui::Text("Scene");
     ImGui::Separator();
-    if (model) {
-        ImGui::Text("Mesh Instances: %zu", model->meshInstances.size());
-        ImGui::Text("Unique Meshes: %zu", model->meshes.size());
-        ImGui::Text("Materials: %zu", model->materials.size());
-        ImGui::Text("Textures: %zu", model->textures.size());
+    if (scene) {
+        size_t totalMeshInstances = 0;
+        size_t totalMaterials = 0;
+        for (const auto& obj : scene->objects) {
+            totalMeshInstances += obj->meshInstances.size();
+            totalMaterials += obj->materials.size();
+        }
+        ImGui::Text("Objects: %zu", scene->objects.size());
+        ImGui::Text("Mesh Instances: %zu", totalMeshInstances);
+        ImGui::Text("Materials: %zu", totalMaterials);
     }
     else {
-        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No model loaded");
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No scene");
     }
 
     ImGui::Spacing();
@@ -293,137 +334,154 @@ void ImGuiManager::DrawStatsPanel(const Timer* timer, const Camera* camera, cons
     ImGui::End();
 }
 
-void ImGuiManager::DrawSceneHierarchyPanel(LoadedModel* model) {
+void ImGuiManager::DrawSceneHierarchyPanel(SceneManager* sceneManager) {
     ImGui::Begin("Scene Hierarchy", &showScenePanel);
 
-    if (!model || model->meshInstances.empty()) {
-        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No model loaded");
+    if (!sceneManager || !sceneManager->GetScene()) {
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No scene");
         ImGui::End();
         return;
     }
 
-    ImGui::Text("Instances: %zu", model->meshInstances.size());
-    ImGui::Separator();
+    Scene* scene = sceneManager->GetScene();
 
-    for (size_t i = 0; i < model->meshInstances.size(); ++i) {
-        const auto& instance = model->meshInstances[i];
-
-        std::string name = instance.mesh ? instance.mesh->GetName() : "Unnamed";
-        if (name.empty()) {
-            name = "Mesh " + std::to_string(i);
-        }
-
-        bool isSelected = (m_selectedInstanceIndex == static_cast<int>(i));
-
-        if (ImGui::Selectable(name.c_str(), isSelected)) {
-            m_selectedInstanceIndex = static_cast<int>(i);
-
-            if (instance.mesh && instance.mesh->GetMaterial()) {
-                for (size_t j = 0; j < model->materials.size(); ++j) {
-                    if (model->materials[j].get() == instance.mesh->GetMaterial().get()) {
-                        m_selectedMaterialIndex = static_cast<int>(j);
-                        break;
-                    }
-                }
-            }
-        }
+    // Add button
+    if (ImGui::Button("+ Add Model")) {
+        OpenModelFileDialog();
     }
 
-    if (m_selectedInstanceIndex >= 0 && m_selectedInstanceIndex < static_cast<int>(model->meshInstances.size())) {
-        ImGui::Separator();
-        ImGui::Text("Selected Instance");
+    ImGui::Separator();
 
-        const auto& instance = model->meshInstances[m_selectedInstanceIndex];
+    // Object list
+    for (int i = 0; i < static_cast<int>(scene->objects.size()); ++i) {
+        auto& obj = scene->objects[i];
 
-        glm::vec3 position(
-            instance.transform[3][0],
-            instance.transform[3][1],
-            instance.transform[3][2]
-        );
-
-        ImGui::Text("Position: (%.2f, %.2f, %.2f)", position.x, position.y, position.z);
-
-        if (instance.mesh) {
-            ImGui::Text("Vertices: %u", instance.mesh->GetVertexCount());
-            ImGui::Text("Triangles: %u", instance.mesh->GetIndexCount() / 3);
+        ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_SpanAvailWidth;
+        if (scene->selectedObjectIndex == i) {
+            flags |= ImGuiTreeNodeFlags_Selected;
         }
+
+        // Visibility toggle
+        ImGui::PushID(i);
+        if (ImGui::Checkbox("##visible", &obj->isVisible)) {
+            scene->MarkDirty();
+        }
+        ImGui::SameLine();
+
+        bool nodeOpen = ImGui::TreeNodeEx(obj->name.c_str(), flags);
+
+        if (ImGui::IsItemClicked()) {
+            sceneManager->SelectObject(i);
+        }
+
+        // Context menu
+        if (ImGui::BeginPopupContextItem()) {
+            if (ImGui::MenuItem("Duplicate")) {
+                sceneManager->DuplicateObject(i);
+            }
+            if (ImGui::MenuItem("Delete")) {
+                sceneManager->RemoveObject(i);
+            }
+            if (ImGui::MenuItem("Focus", "F")) {
+                sceneManager->SelectObject(i);
+                if (m_frameSceneCallback) {
+                    m_frameSceneCallback();
+                }
+            }
+            ImGui::EndPopup();
+        }
+
+        if (nodeOpen) {
+            ImGui::TreePop();
+        }
+
+        ImGui::PopID();
     }
 
     ImGui::End();
 }
 
-void ImGuiManager::DrawMaterialInspector(LoadedModel* model) {
-    ImGui::Begin("Material Inspector", &showMaterialPanel);
+void ImGuiManager::DrawInspectorPanel(SceneManager* sceneManager) {
+    ImGui::Begin("Inspector", &showInspectorPanel);
 
-    if (!model || model->materials.empty()) {
-        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No materials");
+    if (!sceneManager) {
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No scene");
         ImGui::End();
         return;
     }
 
-    std::vector<const char*> materialNames;
-    for (const auto& mat : model->materials) {
-        materialNames.push_back(mat->name.empty() ? "Unnamed" : mat->name.c_str());
+    SceneObject* selected = sceneManager->GetSelectedObject();
+    if (!selected) {
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "No object selected");
+        ImGui::End();
+        return;
     }
 
-    if (m_selectedMaterialIndex < 0) {
-        m_selectedMaterialIndex = 0;
+    Scene* scene = sceneManager->GetScene();
+
+    // Name
+    char nameBuf[256];
+    strncpy_s(nameBuf, selected->name.c_str(), sizeof(nameBuf));
+    if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
+        selected->name = nameBuf;
+        scene->MarkDirty();
     }
 
-    ImGui::Combo("Material", &m_selectedMaterialIndex, materialNames.data(), static_cast<int>(materialNames.size()));
     ImGui::Separator();
 
-    if (m_selectedMaterialIndex >= 0 && m_selectedMaterialIndex < static_cast<int>(model->materials.size())) {
-        auto& material = model->materials[m_selectedMaterialIndex];
+    // Transform
+    ImGui::Text("Transform");
+    bool transformChanged = false;
 
-        ImGui::Text("Base Color");
-        ImGui::ColorEdit4("##baseColor", &material->baseColorFactor.x);
-        ImGui::SameLine();
-        ImGui::TextColored(
-            material->baseColorTexture ? ImVec4(0.4f, 0.8f, 0.4f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
-            material->baseColorTexture ? "[Textured]" : "[No Texture]"
-        );
+    if (ImGui::DragFloat3("Position", glm::value_ptr(selected->position), 0.1f)) {
+        transformChanged = true;
+    }
 
-        ImGui::Spacing();
+    // Convert quaternion to euler for editing
+    glm::vec3 euler = glm::degrees(glm::eulerAngles(selected->rotation));
+    if (ImGui::DragFloat3("Rotation", glm::value_ptr(euler), 1.0f)) {
+        selected->rotation = glm::quat(glm::radians(euler));
+        transformChanged = true;
+    }
 
-        ImGui::Text("PBR Properties");
-        ImGui::SliderFloat("Metallic", &material->metallicFactor, 0.0f, 1.0f);
-        ImGui::SliderFloat("Roughness", &material->roughnessFactor, 0.0f, 1.0f);
+    if (ImGui::DragFloat3("Scale", glm::value_ptr(selected->scale), 0.01f, 0.001f, 100.0f)) {
+        transformChanged = true;
+    }
 
-        ImGui::Spacing();
+    if (transformChanged) {
+        selected->UpdateWorldMatrix();
+        scene->MarkDirty();
+    }
 
-        ImGui::Text("Normal Map");
-        ImGui::SliderFloat("Normal Scale", &material->normalScale, 0.0f, 2.0f);
-        ImGui::SameLine();
-        ImGui::TextColored(
-            material->normalTexture ? ImVec4(0.4f, 0.8f, 0.4f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
-            material->normalTexture ? "[Has Normal]" : "[No Normal]"
-        );
+    ImGui::Separator();
 
-        ImGui::Spacing();
+    // Asset info
+    ImGui::Text("Asset");
+    ImGui::TextWrapped("Path: %s", selected->assetPath.c_str());
+    ImGui::Text("Mesh Instances: %zu", selected->meshInstances.size());
+    ImGui::Text("Materials: %zu", selected->materials.size());
+    ImGui::Text("Textures: %zu", selected->textures.size());
 
-        ImGui::Text("Ambient Occlusion");
-        ImGui::SliderFloat("AO Strength", &material->occlusionStrength, 0.0f, 1.0f);
-        ImGui::SameLine();
-        ImGui::TextColored(
-            material->occlusionTexture ? ImVec4(0.4f, 0.8f, 0.4f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
-            material->occlusionTexture ? "[Has AO]" : "[No AO]"
-        );
+    ImGui::Separator();
 
-        ImGui::Spacing();
+    // Bounds
+    ImGui::Text("Bounds (Local)");
+    ImGui::Text("Min: (%.2f, %.2f, %.2f)", selected->boundsMin.x, selected->boundsMin.y, selected->boundsMin.z);
+    ImGui::Text("Max: (%.2f, %.2f, %.2f)", selected->boundsMax.x, selected->boundsMax.y, selected->boundsMax.z);
 
-        ImGui::Text("Emissive");
-        ImGui::ColorEdit3("##emissive", &material->emissiveFactor.x);
-        ImGui::SameLine();
-        ImGui::TextColored(
-            material->emissiveTexture ? ImVec4(0.4f, 0.8f, 0.4f, 1.0f) : ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
-            material->emissiveTexture ? "[Has Emissive]" : "[No Emissive]"
-        );
+    ImGui::Separator();
 
-        ImGui::Spacing();
-
-        ImGui::Text("Alpha");
-        ImGui::SliderFloat("Cutoff", &material->alphaCutoff, 0.0f, 1.0f);
+    // Materials list (expandable)
+    if (ImGui::CollapsingHeader("Materials")) {
+        for (size_t i = 0; i < selected->materials.size(); ++i) {
+            auto& mat = selected->materials[i];
+            if (ImGui::TreeNode(mat->name.empty() ? "Unnamed" : mat->name.c_str())) {
+                ImGui::ColorEdit4("Base Color", &mat->baseColorFactor.x);
+                ImGui::SliderFloat("Metallic", &mat->metallicFactor, 0.0f, 1.0f);
+                ImGui::SliderFloat("Roughness", &mat->roughnessFactor, 0.0f, 1.0f);
+                ImGui::TreePop();
+            }
+        }
     }
 
     ImGui::End();
@@ -474,4 +532,62 @@ void ImGuiManager::ApplyTheme(int themeIndex) {
     style.ScrollbarRounding = 2.0f;
     style.GrabRounding = 2.0f;
     style.WindowTitleAlign = ImVec2(0.5f, 0.5f);
+}
+
+void ImGuiManager::OpenModelFileDialog() {
+    OPENFILENAMEA ofn = {};
+    char filename[MAX_PATH] = "";
+
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = nullptr;
+    ofn.lpstrFilter = "glTF Files (*.gltf;*.glb)\0*.gltf;*.glb\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrTitle = "Add Model to Scene";
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+    if (GetOpenFileNameA(&ofn)) {
+        if (m_addModelCallback) {
+            m_addModelCallback(std::string(filename));
+        }
+    }
+}
+
+void ImGuiManager::OpenSceneFileDialog() {
+    OPENFILENAMEA ofn = {};
+    char filename[MAX_PATH] = "";
+
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = nullptr;
+    ofn.lpstrFilter = "Scene Files (*.scene)\0*.scene\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrTitle = "Open Scene";
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+
+    if (GetOpenFileNameA(&ofn)) {
+        if (m_openSceneCallback) {
+            m_openSceneCallback();
+        }
+    }
+}
+
+void ImGuiManager::SaveSceneFileDialog() {
+    OPENFILENAMEA ofn = {};
+    char filename[MAX_PATH] = "";
+
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = nullptr;
+    ofn.lpstrFilter = "Scene Files (*.scene)\0*.scene\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrTitle = "Save Scene As";
+    ofn.lpstrDefExt = "scene";
+    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR;
+
+    if (GetSaveFileNameA(&ofn)) {
+        if (m_saveSceneAsCallback) {
+            m_saveSceneAsCallback();
+        }
+    }
 }

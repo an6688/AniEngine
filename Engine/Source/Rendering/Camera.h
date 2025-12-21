@@ -35,6 +35,8 @@ public:
     void SetAspectRatio(float aspectRatio);
     void SetFOV(float fovDegrees);
     void SetNearFar(float nearPlane, float farPlane);
+    void SetTarget(const glm::vec3& target);
+    void SetDistance(float distance);
 
 private:
     void UpdatePosition();

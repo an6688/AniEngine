@@ -8,15 +8,21 @@
 class RenderDevice;
 class Camera;
 class Timer;
-struct LoadedModel;
+class SceneManager;
+struct Scene;
+struct SceneObject;
 
 struct HWND__;
 typedef HWND__* HWND;
 
+// Callbacks
 using ModelLoadCallback = std::function<void(const std::string& path)>;
+using NewSceneCallback = std::function<void()>;
+using OpenSceneCallback = std::function<void()>;
+using SaveSceneCallback = std::function<void()>;
+using SaveSceneAsCallback = std::function<void()>;
 
 // Render settings - SINGLE SOURCE OF TRUTH
-// Owned by Application, passed to Renderer and ImGuiManager
 struct RenderSettings {
     bool wireframeMode = false;
     float ambientIntensity = 0.1f;
@@ -34,7 +40,12 @@ public:
     void Shutdown();
 
     void BeginFrame();
-    void DrawUI(const Timer* timer, const Camera* camera, LoadedModel* model, RenderSettings& settings);
+    void DrawUI(
+        const Timer* timer,
+        const Camera* camera,
+        SceneManager* sceneManager,
+        RenderSettings& settings
+    );
     void Render();
 
     bool ProcessMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -42,29 +53,44 @@ public:
     bool WantCaptureMouse() const;
     bool WantCaptureKeyboard() const;
 
-    void SetModelLoadCallback(ModelLoadCallback callback) { m_modelLoadCallback = callback; }
+    // Callbacks
+    void SetAddModelCallback(ModelLoadCallback callback) { m_addModelCallback = callback; }
+    void SetNewSceneCallback(NewSceneCallback callback) { m_newSceneCallback = callback; }
+    void SetOpenSceneCallback(OpenSceneCallback callback) { m_openSceneCallback = callback; }
+    void SetSaveSceneCallback(SaveSceneCallback callback) { m_saveSceneCallback = callback; }
+    void SetSaveSceneAsCallback(SaveSceneAsCallback callback) { m_saveSceneAsCallback = callback; }
+    void SetFrameSceneCallback(std::function<void()> callback) { m_frameSceneCallback = callback; }
 
+    // Panel visibility
     bool showStatsPanel = true;
     bool showScenePanel = true;
-    bool showMaterialPanel = true;
+    bool showInspectorPanel = true;
     bool showRenderSettingsPanel = true;
     bool showDemoWindow = false;
 
 private:
     void SetupDocking();
-    void DrawMenuBar();
-    void DrawStatsPanel(const Timer* timer, const Camera* camera, const LoadedModel* model);
-    void DrawSceneHierarchyPanel(LoadedModel* model);
-    void DrawMaterialInspector(LoadedModel* model);
+    void DrawMenuBar(SceneManager* sceneManager);
+    void DrawStatsPanel(const Timer* timer, const Camera* camera, const Scene* scene);
+    void DrawSceneHierarchyPanel(SceneManager* sceneManager);
+    void DrawInspectorPanel(SceneManager* sceneManager);
     void DrawRenderSettingsPanel(RenderSettings& settings);
     void ApplyTheme(int themeIndex);
-    void OpenFileDialog();
+
+    void OpenModelFileDialog();
+    void OpenSceneFileDialog();
+    void SaveSceneFileDialog();
 
     RenderDevice* m_device;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvHeap;
     bool m_initialized;
-    int m_selectedMaterialIndex;
-    int m_selectedInstanceIndex;
     int m_currentTheme;
-    ModelLoadCallback m_modelLoadCallback;
+
+    // Callbacks
+    ModelLoadCallback m_addModelCallback;
+    NewSceneCallback m_newSceneCallback;
+    OpenSceneCallback m_openSceneCallback;
+    SaveSceneCallback m_saveSceneCallback;
+    SaveSceneAsCallback m_saveSceneAsCallback;
+    std::function<void()> m_frameSceneCallback;
 };

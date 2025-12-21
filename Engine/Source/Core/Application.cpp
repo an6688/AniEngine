@@ -10,6 +10,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <imgui.h>
 #include "ImGuiManager.h"
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/component_wise.hpp>
 
 Application::Application()
 	: m_renderDevice(nullptr)
@@ -63,112 +65,89 @@ Application::~Application()
 
 bool Application::Initialize()
 {
-	// Initialize window
 	if (!m_window.Initialize(L"AniEngine", 1280, 720))
-	{
 		return false;
-	}
 
-	// Connect input to window
 	m_input.Initialize();
 	m_window.SetInputHandler(&m_input);
 
-	// Create and initialize render device
 	m_renderDevice = new RenderDevice();
 	if (!m_renderDevice->Initialize(m_window.GetHandle(), m_window.GetWidth(), m_window.GetHeight()))
-	{
 		return false;
-	}
-
-	m_imguiManager = new ImGuiManager();
-	if (!m_imguiManager->Initialize(m_window.GetHandle(), m_renderDevice))
-	{
-		return false;
-	}
-	m_window.SetImGuiManager(m_imguiManager);
-
-	// Set up model loading callback
-	m_imguiManager->SetModelLoadCallback([this](const std::string& path) {
-		LoadModel(path);
-		});
 
 	m_textureManager = new TextureManager();
 	if (!m_textureManager->Initialize(m_renderDevice))
-	{
 		return false;
-	}
+
+	// Scene manager replaces the one off model load pathway
+	if (!m_sceneManager.Initialize(m_renderDevice, m_textureManager))
+		return false;
 
 	m_renderer = new Renderer();
 	if (!m_renderer->Initialize(m_renderDevice, m_textureManager))
-	{
 		return false;
-	}
 	m_renderer->SetRenderSettings(&m_renderSettings);
 
 	m_camera = new Camera();
 	m_camera->Initialize(1280.0f / 720.0f);
-	// Set up resize callback
+
+	m_imguiManager = new ImGuiManager();
+	if (!m_imguiManager->Initialize(m_window.GetHandle(), m_renderDevice))
+		return false;
+	m_window.SetImGuiManager(m_imguiManager);
+
+	m_imguiManager->SetAddModelCallback([this](const std::string& path) {
+		m_sceneManager.AddObjectFromFile(path);
+		FrameScene();
+		});
+
+	m_imguiManager->SetNewSceneCallback([this]() {
+		m_sceneManager.NewScene();
+		});
+
+	m_imguiManager->SetSaveSceneCallback([this]() {
+		(void)m_sceneManager.SaveScene();
+		});
+
+	m_imguiManager->SetFrameSceneCallback([this]() {
+		FrameScene();
+		});
+
+	// Resize callback
 	m_window.SetResizeCallback([this](int width, int height) {
 		m_resizePending = true;
 		m_pendingWidth = width;
 		m_pendingHeight = height;
 		});
-
-	const char* modelPath = "E:/repos/glTF-Sample-Assets-main/glTF-Sample-Assets-main/Models/StainedGlassLamp/glTF/StainedGlassLamp.gltf";
-
-	ModelLoader loader;
-	loader.SetTextureManager(m_textureManager);
-
-	if (!loader.LoadGLTF(modelPath, m_renderDevice, m_loadedModel))
-	{
-		MessageBoxA(nullptr, "Failed to load model! Check the path.", "Warning", MB_OK | MB_ICONWARNING);
-	}
-	else
-	{
-		char msg[256];
-		sprintf_s(msg, "Loaded %zu mesh instances, %zu materials, %zu textures\n",
-			m_loadedModel.meshInstances.size(),
-			m_loadedModel.materials.size(),
-			m_loadedModel.textures.size());
-		OutputDebugStringA(msg);
-
-		// Frame the loaded model properly
-		FrameModel();
-	}
-
-	// Start timer
+	
 	m_timer.Start();
 	m_timer.Tick();
-
 	m_isRunning = true;
-
 	return true;
 }
 
-void Application::FrameModel()
+void Application::FrameScene()
 {
-	if (m_loadedModel.meshInstances.empty())
+	Scene* scene = m_sceneManager.GetScene();
+	if (!scene || scene->objects.empty())
 	{
 		m_camera->FrameBounds(glm::vec3(0.0f), 2.0f);
-		m_modelScale = 1.0f;
-		m_modelCenter = glm::vec3(0.0f);
 		return;
 	}
 
-	// Store the scene center and size
-	m_modelCenter = m_loadedModel.center;
-	float modelRadius = m_loadedModel.size * 0.5f;
+	glm::vec3 boundsMin, boundsMax;
+	scene->GetWorldBounds(boundsMin, boundsMax);
 
-	// Don't normalize scale just frame the camera on the actual model
-	m_modelScale = 1.0f;
+	glm::vec3 center = (boundsMin + boundsMax) * 0.5f;
+	glm::vec3 extents = (boundsMax - boundsMin) * 0.5f;
 
-	// Frame camera on the model's actual world space bounds
-	m_camera->FrameBounds(m_modelCenter, modelRadius);
+	// Use max extent for a stable radius
+	float radius = glm::compMax(extents);
 
-	char msg[256];
-	sprintf_s(msg, "FrameModel: center(%.2f, %.2f, %.2f), radius: %.2f\n",
-		m_modelCenter.x, m_modelCenter.y, m_modelCenter.z, modelRadius);
-	OutputDebugStringA(msg);
+	// Safety padding
+	radius *= 1.2f;
+
+	m_camera->FrameBounds(center, radius);
 }
 
 void Application::DrawDebugUI()
@@ -220,7 +199,7 @@ void Application::LoadModel(const std::string& path)
 			m_loadedModel.materials.size());
 		OutputDebugStringA(msg);
 
-		FrameModel();
+		FrameScene();
 	}
 	else
 	{
@@ -249,6 +228,8 @@ void Application::Run()
 
 void Application::Shutdown()
 {
+	m_sceneManager.Shutdown();
+
 	if (m_renderer)
 	{
 		m_renderer->Shutdown();
@@ -285,7 +266,7 @@ void Application::Update()
 	m_imguiManager->BeginFrame();
 
 	// Draw all UI panels (replaces DrawDebugUI)
-	m_imguiManager->DrawUI(&m_timer, m_camera, &m_loadedModel, m_renderSettings);
+	m_imguiManager->DrawUI(&m_timer, m_camera, &m_sceneManager, m_renderSettings);
 }
 
 
@@ -344,7 +325,7 @@ void Application::UpdateCameraInput()
 	bool fKeyIsDown = m_input.IsKeyDown('F');
 	if (fKeyIsDown && !m_fKeyWasDown)
 	{
-		FrameModel();
+		FrameScene();
 	}
 	m_fKeyWasDown = fKeyIsDown;
 
@@ -365,8 +346,7 @@ void Application::UpdateCameraInput()
 	}
 }
 
-void Application::Render()
-{
+void Application::Render() {
 	m_renderDevice->SetClearColor(
 		m_renderSettings.backgroundColor[0],
 		m_renderSettings.backgroundColor[1],
@@ -374,33 +354,28 @@ void Application::Render()
 	);
 
 	m_renderDevice->BeginFrame();
-
-	// Reset the renderer's per frame state (ring buffer offsets)
 	m_renderer->BeginFrame();
 
-	if (!m_loadedModel.meshInstances.empty())
-	{
-		for (const auto& instance : m_loadedModel.meshInstances)
-		{
-			// Use the instance transform directly it already has the world position
-			m_renderer->DrawMeshTextured(instance.mesh.get(), instance.transform, m_camera);
+	// Draw all scene objects
+	Scene* scene = m_sceneManager.GetScene();
+	if (scene) {
+		for (const auto& obj : scene->objects) {
+			if (!obj->isVisible) {
+				continue;
+			}
+
+			for (size_t i = 0; i < obj->meshInstances.size(); ++i) {
+				const auto& instance = obj->meshInstances[i];
+				if (instance.mesh) {
+					glm::mat4 worldMatrix = obj->GetMeshWorldMatrix(i);
+					m_renderer->DrawMeshTextured(instance.mesh.get(), worldMatrix, m_camera);
+				}
+			}
 		}
-	}
-	else if (!m_loadedModel.meshes.empty())
-	{
-		for (const auto& mesh : m_loadedModel.meshes)
-		{
-			m_renderer->DrawMeshTextured(mesh.get(), glm::mat4(1.0f), m_camera);
-		}
-	}
-	else
-	{
-		m_renderer->DrawCube(m_timer.GetDeltaTime());
 	}
 
 	m_renderer->EndFrame();
 	m_imguiManager->Render();
-
 	m_renderDevice->EndFrame();
 }
 

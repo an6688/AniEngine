@@ -152,3 +152,15 @@ void Camera::SetNearFar(float nearPlane, float farPlane)
     m_nearPlane = nearPlane;
     m_farPlane = farPlane;
 }
+
+void Camera::SetTarget(const glm::vec3& target)
+{
+    m_target = target;
+    UpdatePosition();
+}
+
+void Camera::SetDistance(float distance)
+{
+    m_distance = glm::max(distance, m_MinDistance);
+    UpdatePosition();
+}

@@ -10,6 +10,7 @@
 #include "Rendering/ModelLoader.h"
 #include "Rendering/Renderer.h"
 #include "ImGuiManager.h"
+#include "Scene/SceneManager.h"
 
 
 class RenderDevice;
@@ -32,7 +33,7 @@ private:
     void Render();
     void UpdateCameraInput();
     void UpdateWindowTitle();
-    void FrameModel();
+    void FrameScene();
     void DrawDebugUI();
     void LoadModel(const std::string& path);
 
@@ -46,6 +47,7 @@ private:
     Camera* m_camera;
     TextureManager* m_textureManager;
     ImGuiManager* m_imguiManager;
+    SceneManager m_sceneManager;
     RenderSettings m_renderSettings;
 
     // Loaded model data
