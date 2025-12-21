@@ -103,6 +103,7 @@ bool Application::Initialize()
 	{
 		return false;
 	}
+	m_renderer->SetRenderSettings(&m_renderSettings);
 
 	m_camera = new Camera();
 	m_camera->Initialize(1280.0f / 720.0f);
@@ -366,6 +367,12 @@ void Application::UpdateCameraInput()
 
 void Application::Render()
 {
+	m_renderDevice->SetClearColor(
+		m_renderSettings.backgroundColor[0],
+		m_renderSettings.backgroundColor[1],
+		m_renderSettings.backgroundColor[2]
+	);
+
 	m_renderDevice->BeginFrame();
 
 	// Reset the renderer's per frame state (ring buffer offsets)

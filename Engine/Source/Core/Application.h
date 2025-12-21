@@ -8,6 +8,7 @@
 #include "Rendering/TextureManager.h"
 #include "Rendering/Material.h"
 #include "Rendering/ModelLoader.h"
+#include "Rendering/Renderer.h"
 #include "ImGuiManager.h"
 
 

@@ -29,6 +29,14 @@ cbuffer MaterialConstants : register(b1)
     float3 materialPadding;
 };
 
+cbuffer LightingConstants : register(b2)
+{
+    float3 lightDirection;
+    float lightIntensity;
+    float ambientIntensity;
+    float3 lightingPadding;
+};
+
 // Textures and Samplers
 
 Texture2D baseColorTexture : register(t0);
@@ -53,11 +61,7 @@ struct PSInput
 // Constants
 
 static const float PI = 3.14159265359f;
-
-// Simple directional light
-static const float3 lightDirection = normalize(float3(0.5f, -1.0f, 0.5f));
 static const float3 lightColor = float3(1.0f, 1.0f, 1.0f);
-static const float lightIntensity = 2.0f;
 
 // PBR Functions
 
@@ -170,9 +174,8 @@ float4 main(PSInput input) : SV_TARGET
     }
     
     // PBR Lighting Calculation
-    
     float3 V = normalize(cameraPosition - input.worldPos);
-    float3 L = normalize(-lightDirection);
+    float3 L = normalize(-lightDirection); // Use CB value instead of static
     float3 H = normalize(V + L);
     
     float3 F0 = float3(0.04f, 0.04f, 0.04f);
@@ -192,12 +195,12 @@ float4 main(PSInput input) : SV_TARGET
     kD *= 1.0f - metallic;
     
     float NdotL = max(dot(N, L), 0.0f);
-    float3 radiance = lightColor * lightIntensity;
+    float3 radiance = lightColor * lightIntensity; // Use CB value
     
     float3 Lo = (kD * baseColor.rgb / PI + specular) * radiance * NdotL;
     
-    // Ambient + Emissive
-    float3 ambient = float3(0.03f, 0.03f, 0.03f) * baseColor.rgb * ao;
+    // Ambient + Emissive (use CB value for ambient)
+    float3 ambient = ambientIntensity * baseColor.rgb * ao;
     
     float3 color = ambient + Lo;
     
@@ -209,7 +212,6 @@ float4 main(PSInput input) : SV_TARGET
     color += emissive;
     
     // Tone Mapping and Gamma Correction
-    
     color = color / (color + float3(1.0f, 1.0f, 1.0f));
     color = pow(color, float3(1.0f / 2.2f, 1.0f / 2.2f, 1.0f / 2.2f));
     

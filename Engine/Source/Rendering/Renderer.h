@@ -4,7 +4,6 @@
 #include <wrl/client.h>
 #include <DirectXMath.h>
 #include <glm/glm.hpp>
-#include "Mesh.h"
 #include <unordered_map>
 
 class RenderDevice;
@@ -13,10 +12,10 @@ class Camera;
 class Texture;
 class TextureManager;
 struct Material;
+struct RenderSettings;  // Forward declaration - defined in ImGuiManager.h
 
-// Constant buffer for transform data
-struct TransformConstants
-{
+// Transform constants - register(b0)
+struct TransformConstants {
     glm::mat4 worldViewProjection;
     glm::mat4 world;
     glm::mat4 worldInverseTranspose;
@@ -24,38 +23,33 @@ struct TransformConstants
     float padding;
 };
 
-// Constant buffer for PBR material properties
-struct PBRMaterialConstants
-{
-    // Base color
+// Material constants - register(b1)
+struct PBRMaterialConstants {
     glm::vec4 baseColorFactor;
-
-    // Metallic-roughness
     float metallicFactor;
     float roughnessFactor;
-
-    // Normal map
     float normalScale;
-
-    // Occlusion
     float occlusionStrength;
-
-    // Emissive
     glm::vec3 emissiveFactor;
     float alphaCutoff;
-
-    // Texture presence flags
     float hasBaseColorTexture;
     float hasMetallicRoughnessTexture;
     float hasNormalTexture;
     float hasOcclusionTexture;
     float hasEmissiveTexture;
-
     glm::vec3 padding;
 };
 
-class Renderer
-{
+// Lighting constants - register(b2)
+struct LightingConstants {
+    glm::vec3 lightDirection;
+    float lightIntensity;
+    float ambientIntensity;
+    glm::vec3 padding;
+};
+
+// High-level renderer - owns pipelines, draws geometry
+class Renderer {
 public:
     Renderer();
     ~Renderer();
@@ -66,25 +60,25 @@ public:
     void BeginFrame();
     void EndFrame();
 
-    // Main draw method - renders mesh with full PBR materials
     void DrawMeshTextured(Mesh* mesh, const glm::mat4& transform, Camera* camera);
-
-    // Fallback for when no model is loaded
     void DrawCube(float deltaTime);
+
+    void SetRenderSettings(const RenderSettings* settings) { m_renderSettings = settings; }
 
 private:
     bool CreateCubeGeometry();
     bool CreateSimplePipeline();
     bool CreatePBRPipeline();
+    bool CreateLightingConstantBuffer();
 
-    // Build a contiguous descriptor table for a material's textures
     uint32_t GetOrCreateMaterialDescriptorTable(Material* material);
-
     void UpdateConstantBuffer(const glm::mat4& matrix);
+    void UpdateLightingConstants();
 
 private:
     RenderDevice* m_device;
     TextureManager* m_textureManager;
+    const RenderSettings* m_renderSettings;
 
     // Cube resources (fallback)
     Microsoft::WRL::ComPtr<ID3D12Resource> m_cubeVertexBuffer;
@@ -102,22 +96,27 @@ private:
     // PBR pipeline
     Microsoft::WRL::ComPtr<ID3D12RootSignature> m_pbrRootSignature;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_pbrPipelineState;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_pbrPipelineStateWireframe;
 
-    // Per instance constant buffers (ring buffer style)
+    // Transform constant buffer (ring buffer)
     Microsoft::WRL::ComPtr<ID3D12Resource> m_transformConstantBuffer;
-    Microsoft::WRL::ComPtr<ID3D12Resource> m_materialConstantBuffer;
     UINT8* m_transformConstantBufferBegin;
-    UINT8* m_materialConstantBufferBegin;
-
-    // Track current offset in the ring buffer
     UINT m_currentTransformOffset;
-    UINT m_currentMaterialOffset;
-    const UINT MAX_INSTANCES_PER_FRAME = 1024;
-    const UINT TRANSFORM_CB_ALIGNMENT = 256;  // D3D12 requires 256-byte alignment
-    const UINT MATERIAL_CB_ALIGNMENT = 256;
 
-    // Material descriptor table cache
-    // Maps material pointer to starting SRV index of its 5-texture block
+    // Material constant buffer (ring buffer)
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_materialConstantBuffer;
+    UINT8* m_materialConstantBufferBegin;
+    UINT m_currentMaterialOffset;
+
+    // Lighting constant buffer
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_lightingConstantBuffer;
+    UINT8* m_lightingConstantBufferBegin;
+
+    // Constants
+    static const UINT MAX_INSTANCES_PER_FRAME = 1024;
+    static const UINT CB_ALIGNMENT = 256;
+
+    // Material descriptor cache
     std::unordered_map<Material*, uint32_t> m_materialDescriptorCache;
 
     float m_cubeRotation;
