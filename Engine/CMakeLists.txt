@@ -32,6 +32,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     fastgltf::fastgltf
     glm::glm
     imgui
+    imguizmo
     d3d12.lib
     dxgi.lib
     d3dcompiler.lib

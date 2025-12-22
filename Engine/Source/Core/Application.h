@@ -34,6 +34,7 @@ private:
     void UpdateCameraInput();
     void UpdateWindowTitle();
     void FrameScene();
+    void FrameSelected();
     void DrawDebugUI();
     void LoadModel(const std::string& path);
 

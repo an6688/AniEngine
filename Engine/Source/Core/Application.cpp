@@ -105,12 +105,26 @@ bool Application::Initialize()
 		m_sceneManager.NewScene();
 		});
 
+	m_imguiManager->SetOpenSceneCallback([this](const std::string& path) {
+		m_sceneManager.LoadScene(path);
+		FrameScene();
+		});
+
+
 	m_imguiManager->SetSaveSceneCallback([this]() {
 		(void)m_sceneManager.SaveScene();
 		});
 
+	m_imguiManager->SetSaveSceneAsCallback([this](const std::string& path) {
+		m_sceneManager.SaveSceneAs(path);
+		});
+
 	m_imguiManager->SetFrameSceneCallback([this]() {
 		FrameScene();
+		});
+
+	m_imguiManager->SetFrameSelectedCallback([this]() {
+		FrameSelected();
 		});
 
 	// Resize callback
@@ -135,6 +149,41 @@ void Application::FrameScene()
 
 	glm::vec3 boundsMin, boundsMax;
 	scene->GetWorldBounds(boundsMin, boundsMax);
+
+	glm::vec3 center = (boundsMin + boundsMax) * 0.5f;
+	float radius = glm::length(boundsMax - boundsMin) * 0.5f;
+
+	m_camera->SetTarget(center);
+	m_camera->SetDistance(radius * 2.5f);
+}
+
+void Application::FrameSelected()
+{
+	SceneObject* selected = m_sceneManager.GetSelectedObject();
+	if (!selected) {
+		return;
+	}
+
+	// Calculate world-space bounds for this object
+	glm::vec3 boundsMin = glm::vec3(FLT_MAX);
+	glm::vec3 boundsMax = glm::vec3(-FLT_MAX);
+
+	glm::vec3 localCorners[8] = {
+		{ selected->boundsMin.x, selected->boundsMin.y, selected->boundsMin.z },
+		{ selected->boundsMax.x, selected->boundsMin.y, selected->boundsMin.z },
+		{ selected->boundsMin.x, selected->boundsMax.y, selected->boundsMin.z },
+		{ selected->boundsMax.x, selected->boundsMax.y, selected->boundsMin.z },
+		{ selected->boundsMin.x, selected->boundsMin.y, selected->boundsMax.z },
+		{ selected->boundsMax.x, selected->boundsMin.y, selected->boundsMax.z },
+		{ selected->boundsMin.x, selected->boundsMax.y, selected->boundsMax.z },
+		{ selected->boundsMax.x, selected->boundsMax.y, selected->boundsMax.z },
+	};
+
+	for (const auto& corner : localCorners) {
+		glm::vec4 worldCorner = selected->worldMatrix * glm::vec4(corner, 1.0f);
+		boundsMin = glm::min(boundsMin, glm::vec3(worldCorner));
+		boundsMax = glm::max(boundsMax, glm::vec3(worldCorner));
+	}
 
 	glm::vec3 center = (boundsMin + boundsMax) * 0.5f;
 	float radius = glm::length(boundsMax - boundsMin) * 0.5f;
@@ -257,6 +306,7 @@ void Application::Update()
 	m_camera->Update(deltaTime);
 	UpdateWindowTitle();
 	m_imguiManager->BeginFrame();
+	m_imguiManager->ProcessShortcuts(&m_sceneManager);
 
 	// Draw all UI panels (replaces DrawDebugUI)
 	m_imguiManager->DrawUI(&m_timer, m_camera, &m_sceneManager, m_renderSettings);

@@ -10,15 +10,21 @@
 #include <imgui.h>
 #include <imgui_impl_win32.h>
 #include <imgui_impl_dx12.h>
+#include <ImGuizmo.h>
 #include <commdlg.h>
 #include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#define GLM_ENABLE_EXPERIMENTAL
+#include <glm/gtx/matrix_decompose.hpp>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
 ImGuiManager::ImGuiManager()
     : m_device(nullptr)
+    , m_hwnd(nullptr)
     , m_initialized(false)
-    , m_currentTheme(0) {
+    , m_currentTheme(0)
+    , m_usingGizmo(false) {
 }
 
 ImGuiManager::~ImGuiManager() {
@@ -31,6 +37,7 @@ bool ImGuiManager::Initialize(HWND hwnd, RenderDevice* device) {
     }
 
     m_device = device;
+    m_hwnd = hwnd;
 
     D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
     heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -98,11 +105,104 @@ void ImGuiManager::BeginFrame() {
     ImGui_ImplDX12_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
+    ImGuizmo::BeginFrame();
+}
+
+void ImGuiManager::ProcessShortcuts(SceneManager* sceneManager) {
+    if (!m_initialized) {
+        return;
+    }
+
+    // Don't process shortcuts if ImGui wants keyboard
+    if (ImGui::GetIO().WantCaptureKeyboard) {
+        return;
+    }
+
+    bool ctrlHeld = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    bool shiftHeld = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+
+    // Ctrl+N - New Scene
+    if (ctrlHeld && (GetAsyncKeyState('N') & 1)) {
+        if (m_newSceneCallback) {
+            m_newSceneCallback();
+        }
+    }
+
+    // Ctrl+O - Open Scene
+    if (ctrlHeld && (GetAsyncKeyState('O') & 1)) {
+        OpenSceneFileDialog();
+    }
+
+    // Ctrl+S - Save Scene
+    if (ctrlHeld && !shiftHeld && (GetAsyncKeyState('S') & 1)) {
+        if (sceneManager && !sceneManager->GetScenePath().empty()) {
+            if (m_saveSceneCallback) {
+                m_saveSceneCallback();
+            }
+        }
+        else {
+            SaveSceneFileDialog();
+        }
+    }
+
+    // Ctrl+Shift+S - Save Scene As
+    if (ctrlHeld && shiftHeld && (GetAsyncKeyState('S') & 1)) {
+        SaveSceneFileDialog();
+    }
+
+    // Ctrl+M - Add Model
+    if (ctrlHeld && (GetAsyncKeyState('M') & 1)) {
+        OpenModelFileDialog();
+    }
+
+    // Ctrl+D - Duplicate
+    if (ctrlHeld && (GetAsyncKeyState('D') & 1)) {
+        if (sceneManager && sceneManager->GetSelectedIndex() >= 0) {
+            sceneManager->DuplicateObject(sceneManager->GetSelectedIndex());
+        }
+    }
+
+    // Delete - Remove selected
+    if (GetAsyncKeyState(VK_DELETE) & 1) {
+        if (sceneManager && sceneManager->GetSelectedIndex() >= 0) {
+            sceneManager->RemoveObject(sceneManager->GetSelectedIndex());
+        }
+    }
+
+    // F - Frame scene/selection
+    if (GetAsyncKeyState('F') & 1) {
+        if (sceneManager && sceneManager->GetSelectedObject() && m_frameSelectedCallback) {
+            m_frameSelectedCallback();
+        }
+        else if (m_frameSceneCallback) {
+            m_frameSceneCallback();
+        }
+    }
+
+    // W - Translate gizmo
+    if (GetAsyncKeyState('W') & 1) {
+        gizmoMode = GizmoMode::Translate;
+    }
+
+    // E - Rotate gizmo
+    if (GetAsyncKeyState('E') & 1) {
+        gizmoMode = GizmoMode::Rotate;
+    }
+
+    // R - Scale gizmo
+    if (GetAsyncKeyState('R') & 1) {
+        gizmoMode = GizmoMode::Scale;
+    }
+
+    // Q - Toggle gizmo local/world
+    if (GetAsyncKeyState('Q') & 1) {
+        gizmoLocal = !gizmoLocal;
+    }
 }
 
 void ImGuiManager::DrawUI(
     const Timer* timer,
-    const Camera* camera,
+    Camera* camera,
     SceneManager* sceneManager,
     RenderSettings& settings) {
 
@@ -127,6 +227,10 @@ void ImGuiManager::DrawUI(
     if (showRenderSettingsPanel) {
         DrawRenderSettingsPanel(settings);
     }
+
+    // Draw gizmo for selected object
+    DrawTransformGizmo(camera, sceneManager);
+
     if (showDemoWindow) {
         ImGui::ShowDemoWindow(&showDemoWindow);
     }
@@ -162,7 +266,8 @@ bool ImGuiManager::WantCaptureMouse() const {
     if (!m_initialized) {
         return false;
     }
-    return ImGui::GetIO().WantCaptureMouse;
+    // Also block mouse if gizmo is being used
+    return ImGui::GetIO().WantCaptureMouse || m_usingGizmo;
 }
 
 bool ImGuiManager::WantCaptureKeyboard() const {
@@ -215,8 +320,13 @@ void ImGuiManager::DrawMenuBar(SceneManager* sceneManager) {
                 OpenSceneFileDialog();
             }
             if (ImGui::MenuItem("Save Scene", "Ctrl+S")) {
-                if (m_saveSceneCallback) {
-                    m_saveSceneCallback();
+                if (sceneManager && !sceneManager->GetScenePath().empty()) {
+                    if (m_saveSceneCallback) {
+                        m_saveSceneCallback();
+                    }
+                }
+                else {
+                    SaveSceneFileDialog();
                 }
             }
             if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S")) {
@@ -247,9 +357,14 @@ void ImGuiManager::DrawMenuBar(SceneManager* sceneManager) {
                 }
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("Frame Scene", "F")) {
+            if (ImGui::MenuItem("Frame All", "F")) {
                 if (m_frameSceneCallback) {
                     m_frameSceneCallback();
+                }
+            }
+            if (ImGui::MenuItem("Frame Selected", "F", false, hasSelection)) {
+                if (m_frameSelectedCallback) {
+                    m_frameSelectedCallback();
                 }
             }
             ImGui::EndMenu();
@@ -331,7 +446,114 @@ void ImGuiManager::DrawStatsPanel(const Timer* timer, const Camera* camera, cons
         ImGui::Text("Distance: %.2f", camera->GetDistance());
     }
 
+    ImGui::Spacing();
+
+    // Gizmo controls
+    DrawGizmoControls();
+
     ImGui::End();
+}
+
+void ImGuiManager::DrawGizmoControls() {
+    ImGui::Text("Transform Tool");
+    ImGui::Separator();
+
+    ImGui::Checkbox("Enable Gizmo", &gizmoEnabled);
+
+    if (ImGui::RadioButton("Translate (W)", gizmoMode == GizmoMode::Translate)) {
+        gizmoMode = GizmoMode::Translate;
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Rotate (E)", gizmoMode == GizmoMode::Rotate)) {
+        gizmoMode = GizmoMode::Rotate;
+    }
+    ImGui::SameLine();
+    if (ImGui::RadioButton("Scale (R)", gizmoMode == GizmoMode::Scale)) {
+        gizmoMode = GizmoMode::Scale;
+    }
+
+    if (ImGui::Checkbox("Local Space (Q)", &gizmoLocal)) {
+        // Toggle handled
+    }
+
+    if (m_usingGizmo) {
+        ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "Dragging...");
+    }
+}
+
+void ImGuiManager::DrawTransformGizmo(Camera* camera, SceneManager* sceneManager) {
+    if (!sceneManager || !camera || !gizmoEnabled) {
+        m_usingGizmo = false;
+        return;
+    }
+
+    SceneObject* selected = sceneManager->GetSelectedObject();
+    if (!selected) {
+        m_usingGizmo = false;
+        return;
+    }
+
+    ImGuiIO& io = ImGui::GetIO();
+
+    // Set up ImGuizmo
+    ImGuizmo::SetOrthographic(false);
+    ImGuizmo::SetDrawlist(ImGui::GetBackgroundDrawList());
+    ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
+
+    // Get view and projection matrices
+    glm::mat4 view = camera->GetViewMatrix();
+    glm::mat4 proj = camera->GetProjectionMatrix();
+
+    // Determine operation
+    ImGuizmo::OPERATION operation = ImGuizmo::TRANSLATE;
+    switch (gizmoMode) {
+    case GizmoMode::Translate:
+        operation = ImGuizmo::TRANSLATE;
+        break;
+    case GizmoMode::Rotate:
+        operation = ImGuizmo::ROTATE;
+        break;
+    case GizmoMode::Scale:
+        operation = ImGuizmo::SCALE;
+        break;
+    }
+
+    // Determine mode (local or world)
+    ImGuizmo::MODE mode = gizmoLocal ? ImGuizmo::LOCAL : ImGuizmo::WORLD;
+
+    // Get the object's transform matrix
+    glm::mat4 objectMatrix = selected->worldMatrix;
+
+    // Draw and manipulate gizmo
+    bool manipulated = ImGuizmo::Manipulate(
+        glm::value_ptr(view),
+        glm::value_ptr(proj),
+        operation,
+        mode,
+        glm::value_ptr(objectMatrix)
+    );
+
+    m_usingGizmo = ImGuizmo::IsUsing();
+
+    if (manipulated) {
+        // Decompose the matrix back into position, rotation, scale
+        glm::vec3 scale;
+        glm::quat rotation;
+        glm::vec3 translation;
+        glm::vec3 skew;
+        glm::vec4 perspective;
+
+        glm::decompose(objectMatrix, scale, rotation, translation, skew, perspective);
+
+        // Update the scene object
+        selected->position = translation;
+        selected->rotation = rotation;
+        selected->scale = scale;
+        selected->UpdateWorldMatrix();
+
+        // Mark scene as dirty
+        sceneManager->GetScene()->MarkDirty();
+    }
 }
 
 void ImGuiManager::DrawSceneHierarchyPanel(SceneManager* sceneManager) {
@@ -382,10 +604,10 @@ void ImGuiManager::DrawSceneHierarchyPanel(SceneManager* sceneManager) {
             if (ImGui::MenuItem("Delete")) {
                 sceneManager->RemoveObject(i);
             }
-            if (ImGui::MenuItem("Focus", "F")) {
+            if (ImGui::MenuItem("Focus")) {
                 sceneManager->SelectObject(i);
-                if (m_frameSceneCallback) {
-                    m_frameSceneCallback();
+                if (m_frameSelectedCallback) {
+                    m_frameSelectedCallback();
                 }
             }
             ImGui::EndPopup();
@@ -433,7 +655,9 @@ void ImGuiManager::DrawInspectorPanel(SceneManager* sceneManager) {
     ImGui::Text("Transform");
     bool transformChanged = false;
 
-    if (ImGui::DragFloat3("Position", glm::value_ptr(selected->position), 0.1f)) {
+    float dragSpeed = 0.1f;
+
+    if (ImGui::DragFloat3("Position", glm::value_ptr(selected->position), dragSpeed)) {
         transformChanged = true;
     }
 
@@ -445,6 +669,34 @@ void ImGuiManager::DrawInspectorPanel(SceneManager* sceneManager) {
     }
 
     if (ImGui::DragFloat3("Scale", glm::value_ptr(selected->scale), 0.01f, 0.001f, 100.0f)) {
+        transformChanged = true;
+    }
+
+    // Quick scale buttons
+    ImGui::Text("Quick Scale:");
+    ImGui::SameLine();
+    if (ImGui::SmallButton("0.1x")) {
+        selected->scale *= 0.1f;
+        transformChanged = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("0.5x")) {
+        selected->scale *= 0.5f;
+        transformChanged = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("2x")) {
+        selected->scale *= 2.0f;
+        transformChanged = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("10x")) {
+        selected->scale *= 10.0f;
+        transformChanged = true;
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Reset")) {
+        selected->scale = glm::vec3(1.0f);
         transformChanged = true;
     }
 
@@ -468,6 +720,8 @@ void ImGuiManager::DrawInspectorPanel(SceneManager* sceneManager) {
     ImGui::Text("Bounds (Local)");
     ImGui::Text("Min: (%.2f, %.2f, %.2f)", selected->boundsMin.x, selected->boundsMin.y, selected->boundsMin.z);
     ImGui::Text("Max: (%.2f, %.2f, %.2f)", selected->boundsMax.x, selected->boundsMax.y, selected->boundsMax.z);
+    glm::vec3 size = selected->boundsMax - selected->boundsMin;
+    ImGui::Text("Size: (%.2f, %.2f, %.2f)", size.x, size.y, size.z);
 
     ImGui::Separator();
 
@@ -475,10 +729,14 @@ void ImGuiManager::DrawInspectorPanel(SceneManager* sceneManager) {
     if (ImGui::CollapsingHeader("Materials")) {
         for (size_t i = 0; i < selected->materials.size(); ++i) {
             auto& mat = selected->materials[i];
-            if (ImGui::TreeNode(mat->name.empty() ? "Unnamed" : mat->name.c_str())) {
+            std::string matName = mat->name.empty() ? ("Material " + std::to_string(i)) : mat->name;
+            if (ImGui::TreeNode(matName.c_str())) {
                 ImGui::ColorEdit4("Base Color", &mat->baseColorFactor.x);
                 ImGui::SliderFloat("Metallic", &mat->metallicFactor, 0.0f, 1.0f);
                 ImGui::SliderFloat("Roughness", &mat->roughnessFactor, 0.0f, 1.0f);
+                ImGui::SliderFloat("Normal Scale", &mat->normalScale, 0.0f, 2.0f);
+                ImGui::SliderFloat("Occlusion", &mat->occlusionStrength, 0.0f, 1.0f);
+                ImGui::ColorEdit3("Emissive", &mat->emissiveFactor.x);
                 ImGui::TreePop();
             }
         }
@@ -501,6 +759,15 @@ void ImGuiManager::DrawRenderSettingsPanel(RenderSettings& settings) {
     ImGui::SliderFloat("Ambient", &settings.ambientIntensity, 0.0f, 1.0f);
     ImGui::SliderFloat("Light Intensity", &settings.lightIntensity, 0.0f, 5.0f);
     ImGui::SliderFloat3("Light Direction", settings.lightDirection, -1.0f, 1.0f);
+
+    // Normalize light direction button
+    if (ImGui::Button("Normalize Direction")) {
+        glm::vec3 dir(settings.lightDirection[0], settings.lightDirection[1], settings.lightDirection[2]);
+        dir = glm::normalize(dir);
+        settings.lightDirection[0] = dir.x;
+        settings.lightDirection[1] = dir.y;
+        settings.lightDirection[2] = dir.z;
+    }
 
     ImGui::Spacing();
 
@@ -539,7 +806,7 @@ void ImGuiManager::OpenModelFileDialog() {
     char filename[MAX_PATH] = "";
 
     ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = nullptr;
+    ofn.hwndOwner = m_hwnd;
     ofn.lpstrFilter = "glTF Files (*.gltf;*.glb)\0*.gltf;*.glb\0All Files (*.*)\0*.*\0";
     ofn.lpstrFile = filename;
     ofn.nMaxFile = MAX_PATH;
@@ -558,7 +825,7 @@ void ImGuiManager::OpenSceneFileDialog() {
     char filename[MAX_PATH] = "";
 
     ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = nullptr;
+    ofn.hwndOwner = m_hwnd;
     ofn.lpstrFilter = "Scene Files (*.scene)\0*.scene\0All Files (*.*)\0*.*\0";
     ofn.lpstrFile = filename;
     ofn.nMaxFile = MAX_PATH;
@@ -567,7 +834,7 @@ void ImGuiManager::OpenSceneFileDialog() {
 
     if (GetOpenFileNameA(&ofn)) {
         if (m_openSceneCallback) {
-            m_openSceneCallback();
+            m_openSceneCallback(std::string(filename));
         }
     }
 }
@@ -577,7 +844,7 @@ void ImGuiManager::SaveSceneFileDialog() {
     char filename[MAX_PATH] = "";
 
     ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = nullptr;
+    ofn.hwndOwner = m_hwnd;
     ofn.lpstrFilter = "Scene Files (*.scene)\0*.scene\0All Files (*.*)\0*.*\0";
     ofn.lpstrFile = filename;
     ofn.nMaxFile = MAX_PATH;
@@ -587,7 +854,7 @@ void ImGuiManager::SaveSceneFileDialog() {
 
     if (GetSaveFileNameA(&ofn)) {
         if (m_saveSceneAsCallback) {
-            m_saveSceneAsCallback();
+            m_saveSceneAsCallback(std::string(filename));
         }
     }
 }

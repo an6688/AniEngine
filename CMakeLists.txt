@@ -63,6 +63,16 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(imgui)
 
+# Fetch ImGuizmo
+FetchContent_Declare(
+    imguizmo
+    GIT_REPOSITORY https://github.com/CedricGuillemet/ImGuizmo.git
+    GIT_TAG master
+)
+
+FetchContent_MakeAvailable(imguizmo)
+
+# Build ImGui as static library
 add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
@@ -85,6 +95,24 @@ target_link_libraries(imgui PUBLIC
 )
 
 set_target_properties(imgui PROPERTIES FOLDER "ThirdParty")
+
+# Build ImGuizmo as static library (depends on ImGui)
+add_library(imguizmo STATIC
+    ${imguizmo_SOURCE_DIR}/ImGuizmo.cpp
+    ${imguizmo_SOURCE_DIR}/GraphEditor.cpp
+    ${imguizmo_SOURCE_DIR}/ImCurveEdit.cpp
+    ${imguizmo_SOURCE_DIR}/ImGradient.cpp
+    ${imguizmo_SOURCE_DIR}/ImSequencer.cpp
+)
+
+target_include_directories(imguizmo PUBLIC
+    ${imguizmo_SOURCE_DIR}
+)
+
+# ImGuizmo depends on ImGui
+target_link_libraries(imguizmo PUBLIC imgui)
+
+set_target_properties(imguizmo PROPERTIES FOLDER "ThirdParty")
 
 # Add subdirectories
 add_subdirectory(Engine)
