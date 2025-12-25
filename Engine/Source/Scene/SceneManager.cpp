@@ -199,6 +199,11 @@ bool SceneManager::SaveScene() {
 }
 
 bool SceneManager::SaveSceneAs(const std::string& filePath) {
+    // Update scene name from filename
+    std::filesystem::path p(filePath);
+    m_scene->name = p.stem().string();
+    m_scene->filePath = filePath;
+
     std::ofstream file(filePath);
     if (!file.is_open()) {
         OutputDebugStringA(("Failed to save scene file: " + filePath + "\n").c_str());
@@ -222,9 +227,9 @@ bool SceneManager::SaveSceneAs(const std::string& filePath) {
 
     // TODO: Save lights
 
-    m_scene->filePath = filePath;
     m_scene->isDirty = false;
 
+    OutputDebugStringA(("Scene saved: " + filePath + "\n").c_str());
     return true;
 }
 

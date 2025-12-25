@@ -306,7 +306,22 @@ void Application::Update()
 	m_camera->Update(deltaTime);
 	UpdateWindowTitle();
 	m_imguiManager->BeginFrame();
-	m_imguiManager->ProcessShortcuts(&m_sceneManager);
+
+	m_imguiManager->ProcessShortcuts(&m_sceneManager, m_window.IsActive());
+
+	// For viewport picking (left clicking view
+	if (m_input.IsMouseButtonPressed(0) &&
+		!m_imguiManager->WantCaptureMouse() &&
+		!m_imguiManager->IsUsingGizmo() &&
+		m_window.IsActive())
+	{
+		m_imguiManager->HandleViewportClick(
+			m_input.GetMouseX(),
+			m_input.GetMouseY(),
+			m_camera,
+			&m_sceneManager
+		);
+	}
 
 	// Draw all UI panels (replaces DrawDebugUI)
 	m_imguiManager->DrawUI(&m_timer, m_camera, &m_sceneManager, m_renderSettings);

@@ -25,6 +25,8 @@ ImGuiManager::ImGuiManager()
     , m_initialized(false)
     , m_currentTheme(0)
     , m_usingGizmo(false) {
+    memset(m_keyStates, 0, sizeof(m_keyStates));
+    memset(m_keyStatesPrev, 0, sizeof(m_keyStatesPrev));
 }
 
 ImGuiManager::~ImGuiManager() {
@@ -108,8 +110,23 @@ void ImGuiManager::BeginFrame() {
     ImGuizmo::BeginFrame();
 }
 
-void ImGuiManager::ProcessShortcuts(SceneManager* sceneManager) {
+void ImGuiManager::ProcessShortcuts(SceneManager* sceneManager, bool windowFocused) {
     if (!m_initialized) {
+        return;
+    }
+
+    // Save previous key states
+    memcpy(m_keyStatesPrev, m_keyStates, sizeof(m_keyStates));
+
+    // Only read key states if window is focused
+    if (windowFocused) {
+        for (int i = 0; i < 256; i++) {
+            m_keyStates[i] = (GetKeyState(i) & 0x8000) != 0;
+        }
+    }
+    else {
+        // Window not focused - clear all key states
+        memset(m_keyStates, 0, sizeof(m_keyStates));
         return;
     }
 
@@ -118,23 +135,28 @@ void ImGuiManager::ProcessShortcuts(SceneManager* sceneManager) {
         return;
     }
 
-    bool ctrlHeld = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-    bool shiftHeld = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    // Helper lambda: key was just pressed this frame
+    auto keyPressed = [this](int vk) -> bool {
+        return m_keyStates[vk] && !m_keyStatesPrev[vk];
+        };
+
+    bool ctrlHeld = m_keyStates[VK_CONTROL];
+    bool shiftHeld = m_keyStates[VK_SHIFT];
 
     // Ctrl+N - New Scene
-    if (ctrlHeld && (GetAsyncKeyState('N') & 1)) {
+    if (ctrlHeld && keyPressed('N')) {
         if (m_newSceneCallback) {
             m_newSceneCallback();
         }
     }
 
     // Ctrl+O - Open Scene
-    if (ctrlHeld && (GetAsyncKeyState('O') & 1)) {
+    if (ctrlHeld && keyPressed('O')) {
         OpenSceneFileDialog();
     }
 
     // Ctrl+S - Save Scene
-    if (ctrlHeld && !shiftHeld && (GetAsyncKeyState('S') & 1)) {
+    if (ctrlHeld && !shiftHeld && keyPressed('S')) {
         if (sceneManager && !sceneManager->GetScenePath().empty()) {
             if (m_saveSceneCallback) {
                 m_saveSceneCallback();
@@ -146,31 +168,31 @@ void ImGuiManager::ProcessShortcuts(SceneManager* sceneManager) {
     }
 
     // Ctrl+Shift+S - Save Scene As
-    if (ctrlHeld && shiftHeld && (GetAsyncKeyState('S') & 1)) {
+    if (ctrlHeld && shiftHeld && keyPressed('S')) {
         SaveSceneFileDialog();
     }
 
     // Ctrl+M - Add Model
-    if (ctrlHeld && (GetAsyncKeyState('M') & 1)) {
+    if (ctrlHeld && keyPressed('M')) {
         OpenModelFileDialog();
     }
 
     // Ctrl+D - Duplicate
-    if (ctrlHeld && (GetAsyncKeyState('D') & 1)) {
+    if (ctrlHeld && keyPressed('D')) {
         if (sceneManager && sceneManager->GetSelectedIndex() >= 0) {
             sceneManager->DuplicateObject(sceneManager->GetSelectedIndex());
         }
     }
 
     // Delete - Remove selected
-    if (GetAsyncKeyState(VK_DELETE) & 1) {
+    if (keyPressed(VK_DELETE)) {
         if (sceneManager && sceneManager->GetSelectedIndex() >= 0) {
             sceneManager->RemoveObject(sceneManager->GetSelectedIndex());
         }
     }
 
     // F - Frame scene/selection
-    if (GetAsyncKeyState('F') & 1) {
+    if (keyPressed('F')) {
         if (sceneManager && sceneManager->GetSelectedObject() && m_frameSelectedCallback) {
             m_frameSelectedCallback();
         }
@@ -180,23 +202,145 @@ void ImGuiManager::ProcessShortcuts(SceneManager* sceneManager) {
     }
 
     // W - Translate gizmo
-    if (GetAsyncKeyState('W') & 1) {
+    if (keyPressed('W')) {
         gizmoMode = GizmoMode::Translate;
     }
 
     // E - Rotate gizmo
-    if (GetAsyncKeyState('E') & 1) {
+    if (keyPressed('E')) {
         gizmoMode = GizmoMode::Rotate;
     }
 
     // R - Scale gizmo
-    if (GetAsyncKeyState('R') & 1) {
+    if (keyPressed('R')) {
         gizmoMode = GizmoMode::Scale;
     }
 
     // Q - Toggle gizmo local/world
-    if (GetAsyncKeyState('Q') & 1) {
+    if (keyPressed('Q')) {
         gizmoLocal = !gizmoLocal;
+    }
+}
+
+glm::vec3 ImGuiManager::ScreenToWorldRay(int mouseX, int mouseY, Camera* camera) {
+    ImGuiIO& io = ImGui::GetIO();
+    float screenWidth = io.DisplaySize.x;
+    float screenHeight = io.DisplaySize.y;
+
+    // Convert to normalized device coordinates (-1 to 1)
+    float ndcX = (2.0f * mouseX / screenWidth) - 1.0f;
+    float ndcY = 1.0f - (2.0f * mouseY / screenHeight);  // Flip Y
+
+    // Create clip space point on near plane
+    glm::vec4 clipNear(ndcX, ndcY, -1.0f, 1.0f);
+    glm::vec4 clipFar(ndcX, ndcY, 1.0f, 1.0f);
+
+    // Get inverse matrices
+    glm::mat4 invProj = glm::inverse(camera->GetProjectionMatrix());
+    glm::mat4 invView = glm::inverse(camera->GetViewMatrix());
+
+    // Unproject to view space
+    glm::vec4 viewNear = invProj * clipNear;
+    glm::vec4 viewFar = invProj * clipFar;
+    viewNear /= viewNear.w;
+    viewFar /= viewFar.w;
+
+    // Unproject to world space
+    glm::vec4 worldNear = invView * viewNear;
+    glm::vec4 worldFar = invView * viewFar;
+
+    // Calculate ray direction
+    glm::vec3 rayDir = glm::normalize(glm::vec3(worldFar) - glm::vec3(worldNear));
+
+    return rayDir;
+}
+
+bool ImGuiManager::RayIntersectsAABB(const glm::vec3& rayOrigin, const glm::vec3& rayDir,
+    const glm::vec3& boxMin, const glm::vec3& boxMax, float& tOut) {
+    float tmin = -FLT_MAX;
+    float tmax = FLT_MAX;
+
+    for (int i = 0; i < 3; i++) {
+        if (std::abs(rayDir[i]) < 1e-6f) {
+            // Ray is parallel to slab
+            if (rayOrigin[i] < boxMin[i] || rayOrigin[i] > boxMax[i]) {
+                return false;
+            }
+        }
+        else {
+            float invD = 1.0f / rayDir[i];
+            float t1 = (boxMin[i] - rayOrigin[i]) * invD;
+            float t2 = (boxMax[i] - rayOrigin[i]) * invD;
+
+            if (t1 > t2) std::swap(t1, t2);
+
+            tmin = std::max(tmin, t1);
+            tmax = std::min(tmax, t2);
+
+            if (tmin > tmax) {
+                return false;
+            }
+        }
+    }
+
+    tOut = tmin;
+    return tmin >= 0.0f;  // Only count hits in front of camera
+}
+
+void ImGuiManager::HandleViewportClick(int mouseX, int mouseY, Camera* camera, SceneManager* sceneManager) {
+    if (!camera || !sceneManager || !sceneManager->GetScene()) {
+        return;
+    }
+
+    Scene* scene = sceneManager->GetScene();
+    glm::vec3 rayOrigin = camera->GetPosition();
+    glm::vec3 rayDir = ScreenToWorldRay(mouseX, mouseY, camera);
+
+    int closestIndex = -1;
+    float closestT = FLT_MAX;
+
+    for (int i = 0; i < static_cast<int>(scene->objects.size()); i++) {
+        auto& obj = scene->objects[i];
+        if (!obj->isVisible) {
+            continue;
+        }
+
+        // Transform object bounds to world space
+        // For simplicity compute world space AABB from transformed corners
+        glm::vec3 corners[8] = {
+            { obj->boundsMin.x, obj->boundsMin.y, obj->boundsMin.z },
+            { obj->boundsMax.x, obj->boundsMin.y, obj->boundsMin.z },
+            { obj->boundsMin.x, obj->boundsMax.y, obj->boundsMin.z },
+            { obj->boundsMax.x, obj->boundsMax.y, obj->boundsMin.z },
+            { obj->boundsMin.x, obj->boundsMin.y, obj->boundsMax.z },
+            { obj->boundsMax.x, obj->boundsMin.y, obj->boundsMax.z },
+            { obj->boundsMin.x, obj->boundsMax.y, obj->boundsMax.z },
+            { obj->boundsMax.x, obj->boundsMax.y, obj->boundsMax.z },
+        };
+
+        glm::vec3 worldMin(FLT_MAX);
+        glm::vec3 worldMax(-FLT_MAX);
+
+        for (const auto& corner : corners) {
+            glm::vec4 worldCorner = obj->worldMatrix * glm::vec4(corner, 1.0f);
+            worldMin = glm::min(worldMin, glm::vec3(worldCorner));
+            worldMax = glm::max(worldMax, glm::vec3(worldCorner));
+        }
+
+        float t;
+        if (RayIntersectsAABB(rayOrigin, rayDir, worldMin, worldMax, t)) {
+            if (t < closestT) {
+                closestT = t;
+                closestIndex = i;
+            }
+        }
+    }
+
+    if (closestIndex >= 0) {
+        sceneManager->SelectObject(closestIndex);
+    }
+    else {
+        sceneManager->ClearSelection();
     }
 }
 
@@ -475,6 +619,8 @@ void ImGuiManager::DrawGizmoControls() {
     if (ImGui::Checkbox("Local Space (Q)", &gizmoLocal)) {
         // Toggle handled
     }
+
+    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Click in viewport to select objects");
 
     if (m_usingGizmo) {
         ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "Dragging...");

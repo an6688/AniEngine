@@ -4,11 +4,13 @@
 #include <wrl/client.h>
 #include <string>
 #include <functional>
+#include <glm/glm.hpp>
 
 class RenderDevice;
 class Camera;
 class Timer;
 class SceneManager;
+class Window;
 struct Scene;
 struct SceneObject;
 
@@ -63,7 +65,12 @@ public:
     bool IsUsingGizmo() const { return m_usingGizmo; }
 
     // Process keyboard shortcuts (call from Application::Update)
-    void ProcessShortcuts(SceneManager* sceneManager);
+    // Pass windowFocused = true only if your window has focus
+    void ProcessShortcuts(SceneManager* sceneManager, bool windowFocused);
+
+    // Handle viewport click for object picking
+    // Call this when user clicks in viewport (not on UI)
+    void HandleViewportClick(int mouseX, int mouseY, Camera* camera, SceneManager* sceneManager);
 
     // Callbacks
     void SetAddModelCallback(AddModelCallback callback) { m_addModelCallback = callback; }
@@ -101,12 +108,21 @@ private:
     void OpenSceneFileDialog();
     void SaveSceneFileDialog();
 
+    // Picking helpers
+    glm::vec3 ScreenToWorldRay(int mouseX, int mouseY, Camera* camera);
+    bool RayIntersectsAABB(const glm::vec3& rayOrigin, const glm::vec3& rayDir,
+        const glm::vec3& boxMin, const glm::vec3& boxMax, float& tOut);
+
     RenderDevice* m_device;
     HWND m_hwnd;
     Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvHeap;
     bool m_initialized;
     int m_currentTheme;
     bool m_usingGizmo;  // True when user is dragging gizmo
+
+    // Track key states to detect edges (pressed this frame)
+    bool m_keyStates[256] = {};
+    bool m_keyStatesPrev[256] = {};
 
     // Callbacks
     AddModelCallback m_addModelCallback;
