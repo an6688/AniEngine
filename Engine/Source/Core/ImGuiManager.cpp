@@ -16,6 +16,8 @@
 #include <glm/gtc/matrix_transform.hpp>
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/matrix_decompose.hpp>
+#include <shellapi.h>
+#include <filesystem>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -344,10 +346,186 @@ void ImGuiManager::HandleViewportClick(int mouseX, int mouseY, Camera* camera, S
     }
 }
 
+void ImGuiManager::DrawAssetBrowserPanel(ProjectManager* projectManager)
+{
+	ImGui::Begin("Asset Browser", &showAssetBrowser);
+
+	if (!projectManager || !projectManager->HasOpenProject()) {
+		ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No project open");
+		ImGui::TextWrapped("Create or open a project to manage assets.");
+		ImGui::End();
+		return;
+	}
+
+	if (ImGui::Button("Import Model...")) {
+		OpenModelFileDialog();
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Refresh")) {
+		// Could add a rescan function to ProjectManager
+	}
+
+	ImGui::Separator();
+
+	ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "Project: %s",
+		projectManager->GetProjectPath().c_str());
+
+	ImGui::Separator();
+
+	if (ImGui::CollapsingHeader("Models", ImGuiTreeNodeFlags_DefaultOpen)) {
+		auto models = projectManager->GetAssetsByType("model");
+
+		if (models.empty()) {
+			ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "  No models imported");
+		}
+
+		for (size_t i = 0; i < models.size(); i++) {
+			const auto& asset = models[i];
+
+			ImGui::PushID(static_cast<int>(i));
+
+			// Selectable item
+			if (ImGui::Selectable(asset.name.c_str())) {
+				// Single click could show info
+			}
+
+			// Double click to add to scene
+			if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+				if (m_addModelCallback) {
+					std::string fullPath = projectManager->GetFullAssetPath(asset.relativePath);
+					m_addModelCallback(fullPath);
+				}
+			}
+
+			if (ImGui::IsItemHovered()) {
+				ImGui::BeginTooltip();
+				ImGui::Text("Path: %s", asset.relativePath.c_str());
+				ImGui::Text("Double-click to add to scene");
+				ImGui::EndTooltip();
+			}
+
+			// Context menu
+			if (ImGui::BeginPopupContextItem()) {
+				if (ImGui::MenuItem("Add to Scene")) {
+					if (m_addModelCallback) {
+						std::string fullPath = projectManager->GetFullAssetPath(asset.relativePath);
+						m_addModelCallback(fullPath);
+					}
+				}
+				ImGui::Separator();
+				if (ImGui::MenuItem("Show in Explorer")) {
+					std::string fullPath = projectManager->GetFullAssetPath(asset.relativePath);
+					// Open folder in Explorer
+					std::string folder = fullPath.substr(0, fullPath.find_last_of("/\\"));
+					ShellExecuteA(NULL, "explore", folder.c_str(), NULL, NULL, SW_SHOWNORMAL);
+				}
+				if (ImGui::MenuItem("Remove from Project")) {
+					projectManager->RemoveAsset(asset.relativePath);
+				}
+				ImGui::EndPopup();
+			}
+
+			ImGui::PopID();
+		}
+	}
+
+	if (ImGui::CollapsingHeader("Textures")) {
+		auto textures = projectManager->GetAssetsByType("texture");
+
+		if (textures.empty()) {
+			ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "  No textures imported");
+		}
+
+		for (const auto& asset : textures) {
+			ImGui::BulletText("%s", asset.name.c_str());
+		}
+	}
+
+	if (ImGui::CollapsingHeader("Scenes", ImGuiTreeNodeFlags_DefaultOpen)) {
+		auto scenes = projectManager->GetSceneList();
+
+		if (scenes.empty()) {
+			ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "  No scenes saved yet");
+			ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "  Use File > Save Scene As");
+		}
+		else {
+			// Get current scene name for highlighting
+			std::string currentScene = "";
+			if (m_sceneManager) {
+				currentScene = m_sceneManager->GetSceneName();
+			}
+
+			for (size_t i = 0; i < scenes.size(); i++) {
+				const auto& sceneName = scenes[i];
+
+				ImGui::PushID(static_cast<int>(i));
+
+				// Highlight current scene
+				bool isCurrent = (sceneName == currentScene);
+				if (isCurrent) {
+					ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.4f, 0.8f, 0.4f, 1.0f));
+				}
+
+				if (ImGui::Selectable(sceneName.c_str(), isCurrent)) {
+					// Single click selects (visual only for now)
+				}
+
+				if (isCurrent) {
+					ImGui::PopStyleColor();
+				}
+
+				// Double-click to load
+				if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+					std::string scenePath = projectManager->GetFullScenePath(sceneName);
+					if (m_openSceneCallback) {
+						m_openSceneCallback(scenePath);
+					}
+				}
+
+				// Tooltip
+				if (ImGui::IsItemHovered()) {
+					ImGui::BeginTooltip();
+					ImGui::Text("Double click to open");
+					if (isCurrent) {
+						ImGui::TextColored(ImVec4(0.4f, 0.8f, 0.4f, 1.0f), "(Currently open)");
+					}
+					ImGui::EndTooltip();
+				}
+
+				// Right click context menu
+				if (ImGui::BeginPopupContextItem()) {
+					if (ImGui::MenuItem("Open")) {
+						std::string scenePath = projectManager->GetFullScenePath(sceneName);
+						if (m_openSceneCallback) {
+							m_openSceneCallback(scenePath);
+						}
+					}
+					if (ImGui::MenuItem("Show in Explorer")) {
+						std::string scenesFolder = projectManager->GetProject()->GetScenesPath();
+						ShellExecuteA(NULL, "explore", scenesFolder.c_str(), NULL, NULL, SW_SHOWNORMAL);
+					}
+					ImGui::Separator();
+					if (ImGui::MenuItem("Delete", nullptr, false, !isCurrent)) {
+						// Don't allow deleting current scene
+						std::string scenePath = projectManager->GetFullScenePath(sceneName);
+						std::filesystem::remove(scenePath);
+					}
+					ImGui::EndPopup();
+				}
+
+				ImGui::PopID();
+			}
+		}
+	}
+
+	ImGui::End();
+}
+
 void ImGuiManager::DrawUI(
     const Timer* timer,
     Camera* camera,
     SceneManager* sceneManager,
+    ProjectManager* projectManager,
     RenderSettings& settings) {
 
     if (!m_initialized) {
@@ -355,7 +533,7 @@ void ImGuiManager::DrawUI(
     }
 
     SetupDocking();
-    DrawMenuBar(sceneManager);
+    DrawMenuBar(sceneManager, projectManager);
 
     const Scene* scene = sceneManager ? sceneManager->GetScene() : nullptr;
 
@@ -370,6 +548,10 @@ void ImGuiManager::DrawUI(
     }
     if (showRenderSettingsPanel) {
         DrawRenderSettingsPanel(settings);
+    }
+
+    if (showAssetBrowser) {
+        DrawAssetBrowserPanel(projectManager);
     }
 
     // Draw gizmo for selected object
@@ -452,9 +634,32 @@ void ImGuiManager::SetupDocking() {
     ImGui::End();
 }
 
-void ImGuiManager::DrawMenuBar(SceneManager* sceneManager) {
+void ImGuiManager::DrawMenuBar(SceneManager* sceneManager, ProjectManager* projectManager) {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
+            if (ImGui::MenuItem("New Project...")) {
+                if (m_showProjectDialogCallback) {
+                    m_showProjectDialogCallback();
+                }
+            }
+            if (ImGui::MenuItem("Open Project...")) {
+                if (m_showProjectDialogCallback) {
+                    m_showProjectDialogCallback();
+                }
+            }
+
+            bool hasProject = projectManager && projectManager->HasOpenProject();
+            if (ImGui::MenuItem("Close Project", nullptr, false, hasProject)) {
+                if (projectManager) {
+                    projectManager->CloseProject();
+                }
+                if (m_showProjectDialogCallback) {
+                    m_showProjectDialogCallback();
+                }
+            }
+
+            ImGui::Separator();
+
             if (ImGui::MenuItem("New Scene", "Ctrl+N")) {
                 if (m_newSceneCallback) {
                     m_newSceneCallback();
@@ -476,11 +681,16 @@ void ImGuiManager::DrawMenuBar(SceneManager* sceneManager) {
             if (ImGui::MenuItem("Save Scene As...", "Ctrl+Shift+S")) {
                 SaveSceneFileDialog();
             }
+
             ImGui::Separator();
-            if (ImGui::MenuItem("Add Model...", "Ctrl+M")) {
+
+            // === ASSET SECTION ===
+            if (ImGui::MenuItem("Import Model...", "Ctrl+M")) {
                 OpenModelFileDialog();
             }
+
             ImGui::Separator();
+
             if (ImGui::MenuItem("Exit", "Alt+F4")) {
                 PostQuitMessage(0);
             }
@@ -518,6 +728,7 @@ void ImGuiManager::DrawMenuBar(SceneManager* sceneManager) {
             ImGui::MenuItem("Stats", nullptr, &showStatsPanel);
             ImGui::MenuItem("Scene Hierarchy", nullptr, &showScenePanel);
             ImGui::MenuItem("Inspector", nullptr, &showInspectorPanel);
+            ImGui::MenuItem("Asset Browser", nullptr, &showAssetBrowser);
             ImGui::MenuItem("Render Settings", nullptr, &showRenderSettingsPanel);
             ImGui::Separator();
             ImGui::MenuItem("ImGui Demo", nullptr, &showDemoWindow);
@@ -537,14 +748,27 @@ void ImGuiManager::DrawMenuBar(SceneManager* sceneManager) {
             ImGui::EndMenu();
         }
 
-        // Show scene name and dirty state in menu bar
+        // Show project and scene info in menu bar
+        ImGui::Separator();
+
+        if (projectManager && projectManager->HasOpenProject()) {
+            ImGui::TextColored(ImVec4(0.5f, 0.7f, 1.0f, 1.0f), "Project:");
+            ImGui::SameLine(0, 4);
+            ImGui::Text("%s", projectManager->GetProjectName().c_str());
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "|");
+            ImGui::SameLine();
+        }
+
         if (sceneManager) {
-            ImGui::Separator();
-            std::string sceneLabel = sceneManager->GetSceneName();
+            ImGui::TextColored(ImVec4(0.5f, 0.7f, 1.0f, 1.0f), "Scene:");
+            ImGui::SameLine(0, 4);
+
+            std::string sceneName = sceneManager->GetSceneName();
             if (sceneManager->HasUnsavedChanges()) {
-                sceneLabel += " *";
+                sceneName += " *";
             }
-            ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.7f, 1.0f), "%s", sceneLabel.c_str());
+            ImGui::Text("%s", sceneName.c_str());
         }
 
         ImGui::EndMainMenuBar();
@@ -713,15 +937,19 @@ void ImGuiManager::DrawSceneHierarchyPanel(SceneManager* sceneManager) {
 
     Scene* scene = sceneManager->GetScene();
 
-    // Add button
     if (ImGui::Button("+ Add Model")) {
         OpenModelFileDialog();
     }
 
     ImGui::Separator();
 
-    // Object list
-    for (int i = 0; i < static_cast<int>(scene->objects.size()); ++i) {
+    // Track deferred actions to avoid modifying while iterating
+    int deleteIndex = -1;
+    int duplicateIndex = -1;
+    int focusIndex = -1;
+
+    int objectCount = static_cast<int>(scene->objects.size());
+    for (int i = 0; i < objectCount; ++i) {
         auto& obj = scene->objects[i];
 
         ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_SpanAvailWidth;
@@ -729,7 +957,6 @@ void ImGuiManager::DrawSceneHierarchyPanel(SceneManager* sceneManager) {
             flags |= ImGuiTreeNodeFlags_Selected;
         }
 
-        // Visibility toggle
         ImGui::PushID(i);
         if (ImGui::Checkbox("##visible", &obj->isVisible)) {
             scene->MarkDirty();
@@ -742,19 +969,16 @@ void ImGuiManager::DrawSceneHierarchyPanel(SceneManager* sceneManager) {
             sceneManager->SelectObject(i);
         }
 
-        // Context menu
+        // Context menu - defer actions!
         if (ImGui::BeginPopupContextItem()) {
             if (ImGui::MenuItem("Duplicate")) {
-                sceneManager->DuplicateObject(i);
+                duplicateIndex = i;
             }
             if (ImGui::MenuItem("Delete")) {
-                sceneManager->RemoveObject(i);
+                deleteIndex = i;
             }
             if (ImGui::MenuItem("Focus")) {
-                sceneManager->SelectObject(i);
-                if (m_frameSelectedCallback) {
-                    m_frameSelectedCallback();
-                }
+                focusIndex = i;
             }
             ImGui::EndPopup();
         }
@@ -767,6 +991,20 @@ void ImGuiManager::DrawSceneHierarchyPanel(SceneManager* sceneManager) {
     }
 
     ImGui::End();
+
+    // Process deferred actions AFTER the loop
+    if (focusIndex >= 0) {
+        sceneManager->SelectObject(focusIndex);
+        if (m_frameSelectedCallback) {
+            m_frameSelectedCallback();
+        }
+    }
+    if (duplicateIndex >= 0) {
+        sceneManager->DuplicateObject(duplicateIndex);
+    }
+    if (deleteIndex >= 0) {
+        sceneManager->RemoveObject(deleteIndex);
+    }
 }
 
 void ImGuiManager::DrawInspectorPanel(SceneManager* sceneManager) {
@@ -950,13 +1188,21 @@ void ImGuiManager::ApplyTheme(int themeIndex) {
 void ImGuiManager::OpenModelFileDialog() {
     OPENFILENAMEA ofn = {};
     char filename[MAX_PATH] = "";
+    char initialDir[MAX_PATH] = "";
+
+    // Default to project's Assets/Models folder if project is open
+    if (m_projectManager && m_projectManager->HasOpenProject()) {
+        std::string modelsPath = m_projectManager->GetProject()->GetAssetsPath() + "/Models";
+        strncpy_s(initialDir, modelsPath.c_str(), MAX_PATH - 1);
+    }
 
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = m_hwnd;
     ofn.lpstrFilter = "glTF Files (*.gltf;*.glb)\0*.gltf;*.glb\0All Files (*.*)\0*.*\0";
     ofn.lpstrFile = filename;
     ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrTitle = "Add Model to Scene";
+    ofn.lpstrInitialDir = initialDir[0] ? initialDir : nullptr;
+    ofn.lpstrTitle = "Import Model";
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
 
     if (GetOpenFileNameA(&ofn)) {
@@ -969,12 +1215,20 @@ void ImGuiManager::OpenModelFileDialog() {
 void ImGuiManager::OpenSceneFileDialog() {
     OPENFILENAMEA ofn = {};
     char filename[MAX_PATH] = "";
+    char initialDir[MAX_PATH] = "";
+
+    // Default to project's Scenes folder if project is open
+    if (m_projectManager && m_projectManager->HasOpenProject()) {
+        std::string scenesPath = m_projectManager->GetProject()->GetScenesPath();
+        strncpy_s(initialDir, scenesPath.c_str(), MAX_PATH - 1);
+    }
 
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = m_hwnd;
     ofn.lpstrFilter = "Scene Files (*.scene)\0*.scene\0All Files (*.*)\0*.*\0";
     ofn.lpstrFile = filename;
     ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrInitialDir = initialDir[0] ? initialDir : nullptr;
     ofn.lpstrTitle = "Open Scene";
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
 
@@ -988,12 +1242,20 @@ void ImGuiManager::OpenSceneFileDialog() {
 void ImGuiManager::SaveSceneFileDialog() {
     OPENFILENAMEA ofn = {};
     char filename[MAX_PATH] = "";
+    char initialDir[MAX_PATH] = "";
+
+    // Default to project's Scenes folder if project is open
+    if (m_projectManager && m_projectManager->HasOpenProject()) {
+        std::string scenesPath = m_projectManager->GetProject()->GetScenesPath();
+        strncpy_s(initialDir, scenesPath.c_str(), MAX_PATH - 1);
+    }
 
     ofn.lStructSize = sizeof(ofn);
     ofn.hwndOwner = m_hwnd;
     ofn.lpstrFilter = "Scene Files (*.scene)\0*.scene\0All Files (*.*)\0*.*\0";
     ofn.lpstrFile = filename;
     ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrInitialDir = initialDir[0] ? initialDir : nullptr;
     ofn.lpstrTitle = "Save Scene As";
     ofn.lpstrDefExt = "scene";
     ofn.Flags = OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR;

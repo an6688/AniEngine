@@ -11,7 +11,8 @@
 #include "Rendering/Renderer.h"
 #include "ImGuiManager.h"
 #include "Scene/SceneManager.h"
-
+#include "Project/ProjectManager.h"
+#include "Project/ProjectDialog.h"
 
 class RenderDevice;
 class Renderer;
@@ -50,6 +51,8 @@ private:
     ImGuiManager* m_imguiManager;
     SceneManager m_sceneManager;
     RenderSettings m_renderSettings;
+    ProjectManager m_projectManager;
+    ProjectDialog m_projectDialog;
 
     // Loaded model data
     LoadedModel m_loadedModel;
@@ -62,6 +65,8 @@ private:
     bool m_isRunning;
     bool m_fKeyWasDown = false;
     bool m_resizePending = false;
+    bool m_showProjectDialog = true;
+
     int m_pendingWidth = 0;
     int m_pendingHeight = 0;
 

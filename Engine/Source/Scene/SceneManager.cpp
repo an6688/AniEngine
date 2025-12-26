@@ -88,6 +88,10 @@ void SceneManager::Shutdown() {
 }
 
 void SceneManager::NewScene(const std::string& name) {
+    if (m_device) {
+        m_device->WaitForGPU();
+    }
+
     m_scene = std::make_unique<Scene>();
     m_scene->name = name;
     m_scene->filePath.clear();
@@ -188,6 +192,11 @@ bool SceneManager::LoadScene(const std::string& filePath) {
         m_scene->name = p.stem().string();
     }
 
+    // Select first object so gizmo shows up
+    if (!m_scene->objects.empty()) {
+        m_scene->selectedObjectIndex = 0;
+    }
+
     return true;
 }
 
@@ -263,16 +272,27 @@ bool SceneManager::AddObjectFromFile(const std::string& glTFPath, const glm::vec
 }
 
 void SceneManager::RemoveObject(int index) {
+    if (!m_scene) {
+        return;
+    }
+
     if (index < 0 || index >= static_cast<int>(m_scene->objects.size())) {
         return;
+    }
+
+    if (m_device) {
+        m_device->WaitForGPU();
     }
 
     m_scene->objects.erase(m_scene->objects.begin() + index);
     m_scene->MarkDirty();
 
     // Fix selection
-    if (m_scene->selectedObjectIndex == index) {
+    if (m_scene->objects.empty()) {
         m_scene->selectedObjectIndex = -1;
+    }
+    else if (m_scene->selectedObjectIndex == index) {
+        m_scene->selectedObjectIndex = std::max(0, index - 1);
     }
     else if (m_scene->selectedObjectIndex > index) {
         m_scene->selectedObjectIndex--;

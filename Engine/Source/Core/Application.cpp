@@ -12,6 +12,7 @@
 #include "ImGuiManager.h"
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/component_wise.hpp>
+#include <filesystem>
 
 Application::Application()
 	: m_renderDevice(nullptr)
@@ -75,6 +76,10 @@ bool Application::Initialize()
 	if (!m_renderDevice->Initialize(m_window.GetHandle(), m_window.GetWidth(), m_window.GetHeight()))
 		return false;
 
+	m_projectDialog.SetHWND(m_window.GetHandle());
+
+	m_showProjectDialog = true;
+
 	m_textureManager = new TextureManager();
 	if (!m_textureManager->Initialize(m_renderDevice))
 		return false;
@@ -96,9 +101,23 @@ bool Application::Initialize()
 		return false;
 	m_window.SetImGuiManager(m_imguiManager);
 
+	m_imguiManager->SetProjectManager(&m_projectManager);
+	m_imguiManager->SetSceneManager(&m_sceneManager);
+
 	m_imguiManager->SetAddModelCallback([this](const std::string& path) {
-		m_sceneManager.AddObjectFromFile(path);
-		FrameScene();
+		std::string assetPath = path;
+
+		if (m_projectManager.HasOpenProject()) {
+			std::string relativePath = m_projectManager.ImportAsset(path);
+			if (!relativePath.empty()) {
+				assetPath = m_projectManager.GetFullAssetPath(relativePath);
+			}
+			// If import fails, fall through to use original path
+		}
+
+		if (m_sceneManager.AddObjectFromFile(assetPath)) {
+			FrameScene();
+		}
 		});
 
 	m_imguiManager->SetNewSceneCallback([this]() {
@@ -117,6 +136,14 @@ bool Application::Initialize()
 
 	m_imguiManager->SetSaveSceneAsCallback([this](const std::string& path) {
 		m_sceneManager.SaveSceneAs(path);
+
+		// Update project's last opened scene
+		if (m_projectManager.HasOpenProject()) {
+			Project* proj = m_projectManager.GetProject();
+			std::filesystem::path p(path);
+			proj->lastOpenedScene = p.stem().string();
+			m_projectManager.SaveProject();
+		}
 		});
 
 	m_imguiManager->SetFrameSceneCallback([this]() {
@@ -125,6 +152,11 @@ bool Application::Initialize()
 
 	m_imguiManager->SetFrameSelectedCallback([this]() {
 		FrameSelected();
+		});
+
+	m_imguiManager->SetShowProjectDialogCallback([this]() {
+		m_projectDialog.Reset();
+		m_showProjectDialog = true;
 		});
 
 	// Resize callback
@@ -299,7 +331,7 @@ void Application::Update()
 		m_camera->SetAspectRatio(static_cast<float>(m_pendingWidth) / static_cast<float>(m_pendingHeight));
 		m_resizePending = false;
 	}
-
+	m_input.Update();
 	float deltaTime = m_timer.GetDeltaTime();
 
 	UpdateCameraInput();
@@ -307,24 +339,81 @@ void Application::Update()
 	UpdateWindowTitle();
 	m_imguiManager->BeginFrame();
 
-	m_imguiManager->ProcessShortcuts(&m_sceneManager, m_window.IsActive());
+	// Show project dialog if needed
+	if (m_showProjectDialog) {
+		ProjectDialogResult result = m_projectDialog.Show(&m_projectManager);
 
-	// For viewport picking (left clicking view
-	if (m_input.IsMouseButtonPressed(0) &&
-		!m_imguiManager->WantCaptureMouse() &&
-		!m_imguiManager->IsUsingGizmo() &&
-		m_window.IsActive())
-	{
-		m_imguiManager->HandleViewportClick(
-			m_input.GetMouseX(),
-			m_input.GetMouseY(),
-			m_camera,
-			&m_sceneManager
-		);
+		switch (result) {
+		case ProjectDialogResult::CreateNew:
+			if (m_projectManager.CreateProject(
+				m_projectDialog.GetNewProjectName(),
+				m_projectDialog.GetNewProjectFolder())) {
+				m_showProjectDialog = false;
+				m_sceneManager.NewScene();
+				FrameScene();
+			}
+			break;
+
+		case ProjectDialogResult::OpenExisting:
+		case ProjectDialogResult::OpenRecent:
+			if (m_projectManager.OpenProject(m_projectDialog.GetSelectedProjectPath())) {
+				m_showProjectDialog = false;
+
+				// Load last scene if available
+				const Project* proj = m_projectManager.GetProject();
+				if (proj && !proj->lastOpenedScene.empty()) {
+					std::string scenePath = m_projectManager.GetFullScenePath(proj->lastOpenedScene);
+					if (m_sceneManager.LoadScene(scenePath)) {
+						FrameScene();
+					}
+					else {
+						m_sceneManager.NewScene();
+					}
+				}
+				else {
+					m_sceneManager.NewScene();
+				}
+			}
+			break;
+
+		case ProjectDialogResult::Cancelled:
+			// User closed dialog - allow working without project (optional)
+			m_showProjectDialog = false;
+			break;
+
+		default:
+			// Dialog still open, don't process anything else
+			break;
+		}
+
+		// Skip rest of update while dialog is showing
+		return;
 	}
 
-	// Draw all UI panels (replaces DrawDebugUI)
-	m_imguiManager->DrawUI(&m_timer, m_camera, &m_sceneManager, m_renderSettings);
+	// Process keyboard shortcuts
+	m_imguiManager->ProcessShortcuts(&m_sceneManager, m_window.IsActive());
+
+	// Handle camera input only if not interacting with UI
+	if (!m_imguiManager->WantCaptureMouse() && !m_imguiManager->IsUsingGizmo()) {
+		// Viewport picking on left click
+		if (m_input.IsMouseButtonPressed(0) && m_window.IsActive()) {
+			m_imguiManager->HandleViewportClick(
+				m_input.GetMouseX(),
+				m_input.GetMouseY(),
+				m_camera,
+				&m_sceneManager
+			);
+		}
+	}
+
+	// Draw all UI panels
+	m_imguiManager->DrawUI(
+		&m_timer,
+		m_camera,
+		&m_sceneManager,
+		&m_projectManager,
+		m_renderSettings
+	);
 }
 
 
