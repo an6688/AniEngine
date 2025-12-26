@@ -521,6 +521,243 @@ void ImGuiManager::DrawAssetBrowserPanel(ProjectManager* projectManager)
 	ImGui::End();
 }
 
+void ImGuiManager::DrawLightsPanel(SceneManager* sceneManager)
+{
+    ImGui::Begin("Lights", &showLightsPanel);
+
+    if (!sceneManager || !sceneManager->GetScene()) {
+        ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No scene");
+        ImGui::End();
+        return;
+    }
+
+    Scene* scene = sceneManager->GetScene();
+
+    // Add light button
+    if (ImGui::Button("+ Add Light")) {
+        ImGui::OpenPopup("AddLightPopup");
+    }
+
+    if (ImGui::BeginPopup("AddLightPopup")) {
+        if (ImGui::MenuItem("Directional Light")) {
+            SceneLight light;
+            light.name = "Directional Light";
+            light.type = SceneLight::Type::Directional;
+            light.direction = glm::normalize(glm::vec3(0.5f, -1.0f, 0.5f));
+            light.intensity = 2.0f;
+            scene->lights.push_back(light);
+            scene->MarkDirty();
+        }
+        if (ImGui::MenuItem("Point Light")) {
+            SceneLight light;
+            light.name = "Point Light";
+            light.type = SceneLight::Type::Point;
+            light.position = glm::vec3(0.0f, 2.0f, 0.0f);
+            light.range = 10.0f;
+            light.intensity = 5.0f;
+            scene->lights.push_back(light);
+            scene->MarkDirty();
+        }
+        if (ImGui::MenuItem("Spot Light")) {
+            SceneLight light;
+            light.name = "Spot Light";
+            light.type = SceneLight::Type::Spot;
+            light.position = glm::vec3(0.0f, 3.0f, 0.0f);
+            light.direction = glm::vec3(0.0f, -1.0f, 0.0f);
+            light.range = 10.0f;
+            light.intensity = 5.0f;
+            light.innerConeAngle = 25.0f;
+            light.outerConeAngle = 35.0f;
+            scene->lights.push_back(light);
+            scene->MarkDirty();
+        }
+        ImGui::EndPopup();
+    }
+
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(%d / 8 lights)",
+        static_cast<int>(scene->lights.size()));
+
+    ImGui::Separator();
+
+    // Ambient color
+    ImGui::Text("Environment");
+    if (ImGui::ColorEdit3("Ambient Color", &scene->ambientColor.x)) {
+        scene->MarkDirty();
+    }
+
+    ImGui::Separator();
+
+    // Light list
+    if (scene->lights.empty()) {
+        ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "No lights in scene");
+        ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Click '+ Add Light' to create one");
+    }
+
+    int deleteIndex = -1;
+
+    for (int i = 0; i < static_cast<int>(scene->lights.size()); i++) {
+        SceneLight& light = scene->lights[i];
+
+        ImGui::PushID(i);
+
+        // Header with enable checkbox
+        bool headerOpen = ImGui::CollapsingHeader("##header", ImGuiTreeNodeFlags_AllowOverlap);
+
+        // Light icon/type indicator
+        ImGui::SameLine(25);
+        const char* icon = "";
+        switch (light.type) {
+        case SceneLight::Type::Directional: icon = "[D]"; break;
+        case SceneLight::Type::Point:       icon = "[P]"; break;
+        case SceneLight::Type::Spot:        icon = "[S]"; break;
+        }
+        ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.3f, 1.0f), "%s", icon);
+
+        ImGui::SameLine();
+        ImGui::Text("%s", light.name.c_str());
+
+        // Enable checkbox on right side
+        ImGui::SameLine(ImGui::GetWindowWidth() - 45);
+        if (ImGui::Checkbox("##enabled", &light.isEnabled)) {
+            scene->MarkDirty();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Enable/Disable");
+        }
+
+        if (headerOpen) {
+            ImGui::Indent(10);
+
+            // Name
+            char nameBuf[128];
+            strncpy_s(nameBuf, light.name.c_str(), sizeof(nameBuf) - 1);
+            nameBuf[sizeof(nameBuf) - 1] = '\0';
+            if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) {
+                light.name = nameBuf;
+                scene->MarkDirty();
+            }
+
+            // Type display
+            const char* typeNames[] = { "Directional", "Point", "Spot" };
+            ImGui::Text("Type: %s", typeNames[static_cast<int>(light.type)]);
+
+            ImGui::Spacing();
+
+            // Color
+            if (ImGui::ColorEdit3("Color", &light.color.x)) {
+                scene->MarkDirty();
+            }
+
+            // Intensity
+            if (ImGui::DragFloat("Intensity", &light.intensity, 0.1f, 0.0f, 100.0f, "%.1f")) {
+                scene->MarkDirty();
+            }
+
+            ImGui::Spacing();
+
+            // Type-specific properties
+            if (light.type == SceneLight::Type::Directional) {
+                ImGui::Text("Direction");
+                bool dirChanged = false;
+                dirChanged |= ImGui::DragFloat("X##dir", &light.direction.x, 0.01f, -1.0f, 1.0f);
+                dirChanged |= ImGui::DragFloat("Y##dir", &light.direction.y, 0.01f, -1.0f, 1.0f);
+                dirChanged |= ImGui::DragFloat("Z##dir", &light.direction.z, 0.01f, -1.0f, 1.0f);
+                if (dirChanged) {
+                    float len = glm::length(light.direction);
+                    if (len > 0.001f) {
+                        light.direction = glm::normalize(light.direction);
+                    }
+                    scene->MarkDirty();
+                }
+            }
+            else {
+                // Point and Spot lights have position
+                ImGui::Text("Position");
+                bool posChanged = false;
+                posChanged |= ImGui::DragFloat("X##pos", &light.position.x, 0.1f);
+                posChanged |= ImGui::DragFloat("Y##pos", &light.position.y, 0.1f);
+                posChanged |= ImGui::DragFloat("Z##pos", &light.position.z, 0.1f);
+                if (posChanged) {
+                    scene->MarkDirty();
+                }
+
+                ImGui::Spacing();
+
+                if (ImGui::DragFloat("Range", &light.range, 0.1f, 0.1f, 100.0f, "%.1f")) {
+                    scene->MarkDirty();
+                }
+
+                // Spot light has direction and cone angles
+                if (light.type == SceneLight::Type::Spot) {
+                    ImGui::Spacing();
+                    ImGui::Text("Direction");
+                    bool dirChanged = false;
+                    dirChanged |= ImGui::DragFloat("X##spotdir", &light.direction.x, 0.01f, -1.0f, 1.0f);
+                    dirChanged |= ImGui::DragFloat("Y##spotdir", &light.direction.y, 0.01f, -1.0f, 1.0f);
+                    dirChanged |= ImGui::DragFloat("Z##spotdir", &light.direction.z, 0.01f, -1.0f, 1.0f);
+                    if (dirChanged) {
+                        float len = glm::length(light.direction);
+                        if (len > 0.001f) {
+                            light.direction = glm::normalize(light.direction);
+                        }
+                        scene->MarkDirty();
+                    }
+
+                    ImGui::Spacing();
+                    if (ImGui::DragFloat("Inner Angle", &light.innerConeAngle, 1.0f, 1.0f, 89.0f, "%.0f deg")) {
+                        // Keep inner <= outer
+                        if (light.innerConeAngle > light.outerConeAngle) {
+                            light.outerConeAngle = light.innerConeAngle;
+                        }
+                        scene->MarkDirty();
+                    }
+                    if (ImGui::DragFloat("Outer Angle", &light.outerConeAngle, 1.0f, 1.0f, 90.0f, "%.0f deg")) {
+                        // Keep outer >= inner
+                        if (light.outerConeAngle < light.innerConeAngle) {
+                            light.innerConeAngle = light.outerConeAngle;
+                        }
+                        scene->MarkDirty();
+                    }
+                }
+            }
+
+            ImGui::Spacing();
+
+            // Shadows checkbox (for future use)
+            if (ImGui::Checkbox("Cast Shadows", &light.castsShadows)) {
+                scene->MarkDirty();
+            }
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip("Shadow mapping (not yet implemented)");
+            }
+
+            ImGui::Spacing();
+
+            // Delete button
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.2f, 1.0f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.8f, 0.3f, 0.3f, 1.0f));
+            if (ImGui::Button("Delete Light")) {
+                deleteIndex = i;
+            }
+            ImGui::PopStyleColor(2);
+
+            ImGui::Unindent(10);
+        }
+
+        ImGui::PopID();
+        ImGui::Spacing();
+    }
+
+    // Deferred delete (after iteration)
+    if (deleteIndex >= 0) {
+        scene->lights.erase(scene->lights.begin() + deleteIndex);
+        scene->MarkDirty();
+    }
+
+    ImGui::End();
+}
+
 void ImGuiManager::DrawUI(
     const Timer* timer,
     Camera* camera,
@@ -554,6 +791,9 @@ void ImGuiManager::DrawUI(
         DrawAssetBrowserPanel(projectManager);
     }
 
+	if (showLightsPanel) {
+		DrawLightsPanel(sceneManager);
+	}
     // Draw gizmo for selected object
     DrawTransformGizmo(camera, sceneManager);
 
@@ -730,6 +970,7 @@ void ImGuiManager::DrawMenuBar(SceneManager* sceneManager, ProjectManager* proje
             ImGui::MenuItem("Inspector", nullptr, &showInspectorPanel);
             ImGui::MenuItem("Asset Browser", nullptr, &showAssetBrowser);
             ImGui::MenuItem("Render Settings", nullptr, &showRenderSettingsPanel);
+            ImGui::MenuItem("Lights", nullptr, &showLightsPanel);
             ImGui::Separator();
             ImGui::MenuItem("ImGui Demo", nullptr, &showDemoWindow);
             ImGui::EndMenu();

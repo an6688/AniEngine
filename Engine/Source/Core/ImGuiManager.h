@@ -58,6 +58,7 @@ public:
 		RenderSettings& settings
 	);
 	void DrawAssetBrowserPanel(ProjectManager* projectManager);
+	void DrawLightsPanel(SceneManager* sceneManager);
 
 	void Render();
 
@@ -69,8 +70,6 @@ public:
 	// Returns true if gizmo is being used (so camera shouldn't move)
 	bool IsUsingGizmo() const { return m_usingGizmo; }
 
-	// Process keyboard shortcuts (call from Application::Update)
-	// Pass windowFocused = true only if your window has focus
 	void ProcessShortcuts(SceneManager* sceneManager, bool windowFocused);
 
 	// Handle viewport click for object picking
@@ -95,6 +94,7 @@ public:
 	bool showInspectorPanel = true;
 	bool showRenderSettingsPanel = true;
 	bool showDemoWindow = false;
+	bool showLightsPanel = true;
 
 	// Gizmo state
 	GizmoMode gizmoMode = GizmoMode::Translate;

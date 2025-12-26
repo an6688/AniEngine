@@ -116,9 +116,11 @@ bool SceneManager::LoadScene(const std::string& filePath) {
 
     NewScene();
     m_scene->filePath = filePath;
+    m_scene->lights.clear();  // Clear the default light that NewScene adds
 
     std::string line;
     SceneObject* currentObject = nullptr;
+    SceneLight* currentLight = nullptr;
 
     while (std::getline(file, line)) {
         // Trim whitespace
@@ -146,19 +148,64 @@ bool SceneManager::LoadScene(const std::string& filePath) {
             value = value.substr(start);
         }
 
+        // Scene-level properties
         if (key == "scene_name") {
             m_scene->name = value;
         }
         else if (key == "ambient") {
             m_scene->ambientColor = StringToVec3(value);
         }
+        // New light
+        else if (key == "light") {
+            SceneLight light;
+            light.name = value;
+            m_scene->lights.push_back(light);
+            currentLight = &m_scene->lights.back();
+            currentObject = nullptr;  // Switch context
+        }
+        // New object
         else if (key == "object") {
-            // New object
             auto obj = std::make_unique<SceneObject>();
             obj->name = value;
             currentObject = obj.get();
             m_scene->objects.push_back(std::move(obj));
+            currentLight = nullptr;  // Switch context
         }
+        // Light properties (only if we're in a light context)
+        else if (currentLight) {
+            if (key == "type") {
+                int typeVal = std::stoi(value);
+                currentLight->type = static_cast<SceneLight::Type>(typeVal);
+            }
+            else if (key == "position") {
+                currentLight->position = StringToVec3(value);
+            }
+            else if (key == "direction") {
+                currentLight->direction = StringToVec3(value);
+            }
+            else if (key == "color") {
+                currentLight->color = StringToVec3(value);
+            }
+            else if (key == "intensity") {
+                currentLight->intensity = std::stof(value);
+            }
+            else if (key == "range") {
+                currentLight->range = std::stof(value);
+            }
+            else if (key == "innerAngle") {
+                currentLight->innerConeAngle = std::stof(value);
+            }
+            else if (key == "outerAngle") {
+                currentLight->outerConeAngle = std::stof(value);
+            }
+            else if (key == "enabled") {
+                currentLight->isEnabled = (value == "true" || value == "1");
+            }
+            else if (key == "shadows") {
+                currentLight->castsShadows = (value == "true" || value == "1");
+            }
+        }  // <-- THIS CLOSING BRACE WAS MISSING!
+        // Object properties (only if we're in an object context)
         else if (currentObject) {
             if (key == "asset") {
                 currentObject->assetPath = value;
@@ -177,7 +224,7 @@ bool SceneManager::LoadScene(const std::string& filePath) {
                 currentObject->isVisible = (value == "true" || value == "1");
             }
         }
-    }
+    }  // end while
 
     // Update all world matrices
     for (auto& obj : m_scene->objects) {
@@ -234,7 +281,21 @@ bool SceneManager::SaveSceneAs(const std::string& filePath) {
         file << "\n";
     }
 
-    // TODO: Save lights
+    // Save lights
+    for (const auto& light : m_scene->lights) {
+        file << "light: " << light.name << "\n";
+        file << "  type: " << static_cast<int>(light.type) << "\n";
+        file << "  position: " << Vec3ToString(light.position) << "\n";
+        file << "  direction: " << Vec3ToString(light.direction) << "\n";
+        file << "  color: " << Vec3ToString(light.color) << "\n";
+        file << "  intensity: " << light.intensity << "\n";
+        file << "  range: " << light.range << "\n";
+        file << "  innerAngle: " << light.innerConeAngle << "\n";
+        file << "  outerAngle: " << light.outerConeAngle << "\n";
+        file << "  enabled: " << (light.isEnabled ? "true" : "false") << "\n";
+        file << "  shadows: " << (light.castsShadows ? "true" : "false") << "\n";
+        file << "\n";
+    }
 
     m_scene->isDirty = false;
 

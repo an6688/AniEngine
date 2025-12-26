@@ -520,6 +520,7 @@ void Application::Render() {
 			}
 		}
 	}
+	m_renderer->UpdateLightingFromScene(m_sceneManager.GetScene());
 
 	m_renderer->EndFrame();
 	m_imguiManager->Render();

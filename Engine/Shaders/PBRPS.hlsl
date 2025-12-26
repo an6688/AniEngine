@@ -1,5 +1,25 @@
 // PBRPS.hlsl - Physically Based Rendering Pixel Shader
 
+#define MAX_LIGHTS 8
+
+// Light structure (64 bytes, must match C++ GPULight)
+struct Light
+{
+    float3 position;
+    float type; // 0 = directional, 1 = point, 2 = spot
+    
+    float3 direction;
+    float intensity;
+    
+    float3 color;
+    float range;
+    
+    float innerConeAngle; // Cosine of angle (for spot)
+    float outerConeAngle; // Cosine of angle (for spot)
+    float enabled;
+    float padding;
+};
+
 // Constant Buffers
 
 cbuffer TransformConstants : register(b0)
@@ -31,10 +51,9 @@ cbuffer MaterialConstants : register(b1)
 
 cbuffer LightingConstants : register(b2)
 {
-    float3 lightDirection;
-    float lightIntensity;
-    float ambientIntensity;
-    float3 lightingPadding;
+    Light lights[MAX_LIGHTS];
+    float3 ambientColor;
+    float numActiveLights;
 };
 
 // Textures and Samplers
@@ -61,7 +80,6 @@ struct PSInput
 // Constants
 
 static const float PI = 3.14159265359f;
-static const float3 lightColor = float3(1.0f, 1.0f, 1.0f);
 
 // PBR Functions
 
@@ -125,6 +143,72 @@ float3 GetNormalFromMap(float3 worldNormal, float3 worldPos, float2 texCoord)
     return normalize(mul(tangentNormal, TBN));
 }
 
+// Calculate lighting contribution from a single light
+float3 CalculateLightContribution(
+    Light light,
+    float3 N,
+    float3 V,
+    float3 worldPos,
+    float3 albedo,
+    float metallic,
+    float roughness,
+    float3 F0)
+{
+    // Skip disabled lights
+    if (light.enabled < 0.5f)
+        return float3(0.0f, 0.0f, 0.0f);
+    
+    float3 L;
+    float attenuation = 1.0f;
+    
+    if (light.type < 0.5f)
+    {
+        // Directional light
+        L = normalize(-light.direction);
+    }
+    else
+    {
+        // Point or Spot light
+        float3 lightVec = light.position - worldPos;
+        float distance = length(lightVec);
+        L = lightVec / distance;
+        
+        // Attenuation (inverse square with smooth range falloff)
+        float distOverRange = distance / light.range;
+        float distOverRange4 = distOverRange * distOverRange * distOverRange * distOverRange;
+        float rangeAtt = saturate(1.0f - distOverRange4);
+        attenuation = (rangeAtt * rangeAtt) / (distance * distance + 1.0f);
+        
+        // Spot light cone attenuation
+        if (light.type > 1.5f)
+        {
+            float theta = dot(L, normalize(-light.direction));
+            float epsilon = light.innerConeAngle - light.outerConeAngle;
+            float spotAtt = saturate((theta - light.outerConeAngle) / epsilon);
+            attenuation *= spotAtt * spotAtt;
+        }
+    }
+    
+    float3 H = normalize(V + L);
+    
+    // Cook-Torrance BRDF
+    float NDF = DistributionGGX(N, H, roughness);
+    float G = GeometrySmith(N, V, L, roughness);
+    float3 F = FresnelSchlick(max(dot(H, V), 0.0f), F0);
+    
+    float3 numerator = NDF * G * F;
+    float denominator = 4.0f * max(dot(N, V), 0.0f) * max(dot(N, L), 0.0f) + 0.0001f;
+    float3 specular = numerator / denominator;
+    
+    float3 kS = F;
+    float3 kD = (float3(1.0f, 1.0f, 1.0f) - kS) * (1.0f - metallic);
+    
+    float NdotL = max(dot(N, L), 0.0f);
+    float3 radiance = light.color * light.intensity * attenuation;
+    
+    return (kD * albedo / PI + specular) * radiance * NdotL;
+}
+
 // Main Pixel Shader
 
 float4 main(PSInput input) : SV_TARGET
@@ -173,37 +257,36 @@ float4 main(PSInput input) : SV_TARGET
         ao = lerp(1.0f, ao, occlusionStrength);
     }
     
-    // PBR Lighting Calculation
+    // PBR Setup
     float3 V = normalize(cameraPosition - input.worldPos);
-    float3 L = normalize(-lightDirection); // Use CB value instead of static
-    float3 H = normalize(V + L);
     
     float3 F0 = float3(0.04f, 0.04f, 0.04f);
     F0 = lerp(F0, baseColor.rgb, metallic);
     
-    // Cook-Torrance BRDF
-    float NDF = DistributionGGX(N, H, roughness);
-    float G = GeometrySmith(N, V, L, roughness);
-    float3 F = FresnelSchlick(max(dot(H, V), 0.0f), F0);
+    // Accumulate lighting from all lights
+    float3 Lo = float3(0.0f, 0.0f, 0.0f);
     
-    float3 numerator = NDF * G * F;
-    float denominator = 4.0f * max(dot(N, V), 0.0f) * max(dot(N, L), 0.0f) + 0.0001f;
-    float3 specular = numerator / denominator;
+    int activeLights = (int) numActiveLights;
+    for (int i = 0; i < activeLights && i < MAX_LIGHTS; i++)
+    {
+        Lo += CalculateLightContribution(
+            lights[i],
+            N,
+            V,
+            input.worldPos,
+            baseColor.rgb,
+            metallic,
+            roughness,
+            F0
+        );
+    }
     
-    float3 kS = F;
-    float3 kD = float3(1.0f, 1.0f, 1.0f) - kS;
-    kD *= 1.0f - metallic;
-    
-    float NdotL = max(dot(N, L), 0.0f);
-    float3 radiance = lightColor * lightIntensity; // Use CB value
-    
-    float3 Lo = (kD * baseColor.rgb / PI + specular) * radiance * NdotL;
-    
-    // Ambient + Emissive (use CB value for ambient)
-    float3 ambient = ambientIntensity * baseColor.rgb * ao;
+    // Ambient
+    float3 ambient = ambientColor * baseColor.rgb * ao;
     
     float3 color = ambient + Lo;
     
+    // Emissive
     float3 emissive = emissiveFactor;
     if (hasEmissiveTexture > 0.5f)
     {
@@ -211,7 +294,7 @@ float4 main(PSInput input) : SV_TARGET
     }
     color += emissive;
     
-    // Tone Mapping and Gamma Correction
+    // Tone Mapping (Reinhard) and Gamma Correction
     color = color / (color + float3(1.0f, 1.0f, 1.0f));
     color = pow(color, float3(1.0f / 2.2f, 1.0f / 2.2f, 1.0f / 2.2f));
     

@@ -11,6 +11,7 @@
 #include <d3dx12/d3dx12.h>
 #include <glm/gtc/type_ptr.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
+#include <Scene/Scene.h>
 
 Renderer::Renderer()
     : m_device(nullptr)
@@ -82,15 +83,13 @@ void Renderer::Shutdown() {
 void Renderer::BeginFrame() {
     m_currentTransformOffset = 0;
     m_currentMaterialOffset = 0;
-
-    UpdateLightingConstants();
 }
 
 void Renderer::EndFrame() {
 }
 
 bool Renderer::CreateLightingConstantBuffer() {
-    const UINT bufferSize = CB_ALIGNMENT;
+    const UINT bufferSize = 768; // TODO fix this, shouldnt be a fixed value
 
     CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_UPLOAD);
     CD3DX12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(bufferSize);
@@ -116,33 +115,21 @@ bool Renderer::CreateLightingConstantBuffer() {
         return false;
     }
 
+    // Initialize with defaults
+    memset(&m_lightingCB, 0, sizeof(m_lightingCB));
+    m_lightingCB.lights[0].type = 0.0f;
+    m_lightingCB.lights[0].direction = glm::vec3(0.5f, -1.0f, 0.5f);
+    m_lightingCB.lights[0].color = glm::vec3(1.0f);
+    m_lightingCB.lights[0].intensity = 2.0f;
+    m_lightingCB.lights[0].enabled = 1.0f;
+    m_lightingCB.ambientColor = glm::vec3(0.1f);
+    m_lightingCB.numActiveLights = 1.0f;
+
+    memcpy(m_lightingConstantBufferBegin, &m_lightingCB, sizeof(LightingConstantBuffer));
+
     return true;
 }
 
-void Renderer::UpdateLightingConstants() {
-    if (!m_lightingConstantBufferBegin) {
-        return;
-    }
-
-    LightingConstants lighting = {};
-
-    if (m_renderSettings) {
-        lighting.lightDirection = glm::normalize(glm::vec3(
-            m_renderSettings->lightDirection[0],
-            m_renderSettings->lightDirection[1],
-            m_renderSettings->lightDirection[2]
-        ));
-        lighting.lightIntensity = m_renderSettings->lightIntensity;
-        lighting.ambientIntensity = m_renderSettings->ambientIntensity;
-    }
-    else {
-        lighting.lightDirection = glm::normalize(glm::vec3(0.5f, 1.0f, 0.5f));
-        lighting.lightIntensity = 2.0f;
-        lighting.ambientIntensity = 0.1f;
-    }
-
-    memcpy(m_lightingConstantBufferBegin, &lighting, sizeof(LightingConstants));
-}
 
 bool Renderer::CreateCubeGeometry() {
     Vertex cubeVertices[] = {
@@ -562,6 +549,76 @@ void Renderer::DrawCube(float deltaTime) {
     commandList->IASetVertexBuffers(0, 1, &m_cubeVertexBufferView);
     commandList->IASetIndexBuffer(&m_cubeIndexBufferView);
     commandList->DrawIndexedInstanced(m_cubeIndexCount, 1, 0, 0, 0);
+}
+
+void Renderer::UpdateLightingFromScene(const Scene* scene)
+{
+    // Clear the buffer
+    memset(&m_lightingCB, 0, sizeof(m_lightingCB));
+
+    if (!scene) {
+        // Default: single directional light
+        m_lightingCB.lights[0].type = 0.0f;  // Directional
+        m_lightingCB.lights[0].direction = glm::vec3(0.5f, -1.0f, 0.5f);
+        m_lightingCB.lights[0].color = glm::vec3(1.0f);
+        m_lightingCB.lights[0].intensity = 2.0f;
+        m_lightingCB.lights[0].enabled = 1.0f;
+        m_lightingCB.ambientColor = glm::vec3(0.1f);
+        m_lightingCB.numActiveLights = 1.0f;
+    }
+    else {
+        // Set ambient from scene
+        m_lightingCB.ambientColor = scene->ambientColor;
+
+        // Copy lights from scene
+        int lightIndex = 0;
+        for (const auto& sceneLight : scene->lights) {
+            if (lightIndex >= MAX_LIGHTS) break;
+            if (!sceneLight.isEnabled) continue;
+
+            GPULight& gpu = m_lightingCB.lights[lightIndex];
+
+            gpu.position = sceneLight.position;
+            gpu.direction = glm::normalize(sceneLight.direction);
+            gpu.color = sceneLight.color;
+            gpu.intensity = sceneLight.intensity;
+            gpu.range = sceneLight.range;
+            gpu.enabled = 1.0f;
+
+            switch (sceneLight.type) {
+            case SceneLight::Type::Directional:
+                gpu.type = 0.0f;
+                break;
+            case SceneLight::Type::Point:
+                gpu.type = 1.0f;
+                break;
+            case SceneLight::Type::Spot:
+                gpu.type = 2.0f;
+                gpu.innerConeAngle = cos(glm::radians(sceneLight.innerConeAngle));
+                gpu.outerConeAngle = cos(glm::radians(sceneLight.outerConeAngle));
+                break;
+            }
+
+            lightIndex++;
+        }
+
+        m_lightingCB.numActiveLights = static_cast<float>(lightIndex);
+
+        // If no lights, add a default
+        if (lightIndex == 0) {
+            m_lightingCB.lights[0].type = 0.0f;
+            m_lightingCB.lights[0].direction = glm::vec3(0.5f, -1.0f, 0.5f);
+            m_lightingCB.lights[0].color = glm::vec3(1.0f);
+            m_lightingCB.lights[0].intensity = 2.0f;
+            m_lightingCB.lights[0].enabled = 1.0f;
+            m_lightingCB.numActiveLights = 1.0f;
+        }
+    }
+
+    // Upload to GPU
+    if (m_lightingConstantBufferBegin) {
+        memcpy(m_lightingConstantBufferBegin, &m_lightingCB, sizeof(LightingConstantBuffer));
+    }
 }
 
 void Renderer::DrawMeshTextured(Mesh* mesh, const glm::mat4& transform, Camera* camera) {

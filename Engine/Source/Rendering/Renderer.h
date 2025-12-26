@@ -5,14 +5,17 @@
 #include <DirectXMath.h>
 #include <glm/glm.hpp>
 #include <unordered_map>
+#include "LightingTypes.h"
 
 class RenderDevice;
 class Mesh;
 class Camera;
 class Texture;
 class TextureManager;
+class Scene;
 struct Material;
-struct RenderSettings;  // Forward declaration - defined in ImGuiManager.h
+struct RenderSettings;
+
 
 // Transform constants - register(b0)
 struct TransformConstants {
@@ -40,14 +43,6 @@ struct PBRMaterialConstants {
     glm::vec3 padding;
 };
 
-// Lighting constants - register(b2)
-struct LightingConstants {
-    glm::vec3 lightDirection;
-    float lightIntensity;
-    float ambientIntensity;
-    glm::vec3 padding;
-};
-
 // High-level renderer - owns pipelines, draws geometry
 class Renderer {
 public:
@@ -64,6 +59,7 @@ public:
     void DrawCube(float deltaTime);
 
     void SetRenderSettings(const RenderSettings* settings) { m_renderSettings = settings; }
+    void UpdateLightingFromScene(const Scene* scene);
 
 private:
     bool CreateCubeGeometry();
@@ -73,11 +69,12 @@ private:
 
     uint32_t GetOrCreateMaterialDescriptorTable(Material* material);
     void UpdateConstantBuffer(const glm::mat4& matrix);
-    void UpdateLightingConstants();
 
 private:
     RenderDevice* m_device;
     TextureManager* m_textureManager;
+    LightingConstantBuffer m_lightingCB;
+
     const RenderSettings* m_renderSettings;
 
     // Cube resources (fallback)
