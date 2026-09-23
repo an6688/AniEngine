@@ -99,6 +99,7 @@ bool Application::Initialize()
 	m_imguiManager = new ImGuiManager();
 	if (!m_imguiManager->Initialize(m_window.GetHandle(), m_renderDevice))
 		return false;
+	m_imguiManager->SetShadowMap(m_renderer->GetShadowMap());
 	m_window.SetImGuiManager(m_imguiManager);
 
 	m_imguiManager->SetProjectManager(&m_projectManager);
@@ -503,6 +504,9 @@ void Application::Render() {
 	m_renderDevice->BeginFrame();
 	m_renderer->BeginFrame();
 
+	m_renderer->RenderDirectionalShadow(m_sceneManager.GetScene());
+	m_renderer->UpdateLightingFromScene(m_sceneManager.GetScene());
+
 	// Draw all scene objects
 	Scene* scene = m_sceneManager.GetScene();
 	if (scene) {
@@ -520,7 +524,6 @@ void Application::Render() {
 			}
 		}
 	}
-	m_renderer->UpdateLightingFromScene(m_sceneManager.GetScene());
 
 	m_renderer->EndFrame();
 	m_imguiManager->Render();

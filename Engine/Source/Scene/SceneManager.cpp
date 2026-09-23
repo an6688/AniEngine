@@ -104,6 +104,7 @@ void SceneManager::NewScene(const std::string& name) {
     defaultLight.type = SceneLight::Type::Directional;
     defaultLight.direction = glm::normalize(glm::vec3(0.5f, -1.0f, 0.5f));
     defaultLight.intensity = 2.0f;
+    defaultLight.castsShadows = true;
     m_scene->lights.push_back(defaultLight);
 }
 

@@ -65,6 +65,34 @@ Texture2D occlusionTexture : register(t3);
 Texture2D emissiveTexture : register(t4);
 
 SamplerState linearSampler : register(s0);
+Texture2D<float> directionalShadowMap : register(t5);
+SamplerComparisonState shadowSampler : register(s1);
+cbuffer ShadowConstants : register(b3)
+{
+    float4x4 lightViewProjection;
+    float shadowLightIndex;
+    float shadowDepthBias;
+    float shadowSlopeBias;
+    float shadowTexelSize;
+    float4 shadowOptions;
+};
+float DirectionalVisibility(float3 worldPos, float3 normal, float3 lightDirection)
+{
+    float4 projected = mul(float4(worldPos, 1.0f), lightViewProjection);
+    float3 ndc = projected.xyz / projected.w;
+    float2 uv = ndc.xy * float2(0.5f, -0.5f) + 0.5f;
+    if (any(uv < 0.0f) || any(uv > 1.0f) || ndc.z < 0.0f || ndc.z > 1.0f)
+        return 1.0f;
+    float bias = shadowDepthBias + shadowSlopeBias * (1.0f - saturate(dot(normal, -normalize(lightDirection))));
+    if (shadowOptions.x < 0.5f)
+        return directionalShadowMap.SampleCmpLevelZero(shadowSampler, uv, ndc.z - bias);
+    float visibility = 0.0f;
+    [unroll] for (int y = -1; y <= 1; ++y)
+        [unroll] for (int x = -1; x <= 1; ++x)
+            visibility += directionalShadowMap.SampleCmpLevelZero(shadowSampler,
+                uv + float2(x, y) * shadowTexelSize, ndc.z - bias);
+    return visibility / 9.0f;
+}
 
 // Input Structure
 
@@ -269,7 +297,9 @@ float4 main(PSInput input) : SV_TARGET
     int activeLights = (int) numActiveLights;
     for (int i = 0; i < activeLights && i < MAX_LIGHTS; i++)
     {
-        Lo += CalculateLightContribution(
+        float visibility = (shadowLightIndex >= 0.0f && i == (int)shadowLightIndex)
+            ? DirectionalVisibility(input.worldPos, N, lights[i].direction) : 1.0f;
+        Lo += visibility * CalculateLightContribution(
             lights[i],
             N,
             V,

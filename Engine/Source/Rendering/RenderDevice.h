@@ -20,6 +20,8 @@ public:
 
     void BeginFrame();
     void EndFrame();
+    void BindMainRenderTargets();
+    UINT GetFrameIndex() const { return m_frameIndex; }
 
     void WaitForGPU();
     void OnResize(int width, int height);

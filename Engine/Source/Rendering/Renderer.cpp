@@ -46,6 +46,7 @@ bool Renderer::Initialize(RenderDevice* device, TextureManager* textureManager) 
     if (!CreatePBRPipeline()) {
         return false;
     }
+    if (!CreateShadowResources()) return false;
     if (!CreateLightingConstantBuffer()) {
         return false;
     }
@@ -74,6 +75,10 @@ void Renderer::Shutdown() {
         m_lightingConstantBufferBegin = nullptr;
     }
 
+    if (m_shadowConstantsBegin) {
+        m_shadowConstants->Unmap(0, nullptr);
+        m_shadowConstantsBegin = nullptr;
+    }
     m_materialDescriptorCache.clear();
     m_device = nullptr;
     m_textureManager = nullptr;
@@ -89,7 +94,7 @@ void Renderer::EndFrame() {
 }
 
 bool Renderer::CreateLightingConstantBuffer() {
-    const UINT bufferSize = 768; // TODO fix this, shouldnt be a fixed value
+    const UINT bufferSize = LightingStride * RenderDevice::FrameBufferCount;
 
     CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_UPLOAD);
     CD3DX12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(bufferSize);
@@ -125,7 +130,7 @@ bool Renderer::CreateLightingConstantBuffer() {
     m_lightingCB.ambientColor = glm::vec3(0.1f);
     m_lightingCB.numActiveLights = 1.0f;
 
-    memcpy(m_lightingConstantBufferBegin, &m_lightingCB, sizeof(LightingConstantBuffer));
+    memcpy(m_lightingConstantBufferBegin + m_device->GetFrameIndex() * LightingStride, &m_lightingCB, sizeof(LightingConstantBuffer));
 
     return true;
 }
@@ -316,26 +321,38 @@ bool Renderer::CreateSimplePipeline() {
 }
 
 bool Renderer::CreatePBRPipeline() {
-    // Root signature with 4 parameters:
+    // Root signature with 6 parameters:
     // 0: Transform CBV (b0)
     // 1: Material CBV (b1)
     // 2: Texture descriptor table (t0-t4)
     // 3: Lighting CBV (b2)
+    // 4: Shadow CBV (b3)
+    // 5: Shadow depth SRV (t5)
 
     CD3DX12_DESCRIPTOR_RANGE1 srvRange;
     srvRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 5, 0);
 
-    CD3DX12_ROOT_PARAMETER1 rootParams[4];
+    CD3DX12_DESCRIPTOR_RANGE1 shadowRange;
+    shadowRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 5);
+    CD3DX12_ROOT_PARAMETER1 rootParams[6];
     rootParams[0].InitAsConstantBufferView(0, 0, D3D12_ROOT_DESCRIPTOR_FLAG_NONE, D3D12_SHADER_VISIBILITY_ALL);
     rootParams[1].InitAsConstantBufferView(1, 0, D3D12_ROOT_DESCRIPTOR_FLAG_NONE, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[2].InitAsDescriptorTable(1, &srvRange, D3D12_SHADER_VISIBILITY_PIXEL);
     rootParams[3].InitAsConstantBufferView(2, 0, D3D12_ROOT_DESCRIPTOR_FLAG_NONE, D3D12_SHADER_VISIBILITY_PIXEL);
 
-    CD3DX12_STATIC_SAMPLER_DESC sampler(0, D3D12_FILTER_MIN_MAG_MIP_LINEAR);
-    sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    rootParams[4].InitAsConstantBufferView(3, 0, D3D12_ROOT_DESCRIPTOR_FLAG_NONE, D3D12_SHADER_VISIBILITY_PIXEL);
+    rootParams[5].InitAsDescriptorTable(1, &shadowRange, D3D12_SHADER_VISIBILITY_PIXEL);
+    CD3DX12_STATIC_SAMPLER_DESC samplers[2];
+    samplers[0].Init(0, D3D12_FILTER_MIN_MAG_MIP_LINEAR);
+    samplers[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    samplers[1].Init(1, D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT,
+        D3D12_TEXTURE_ADDRESS_MODE_BORDER, D3D12_TEXTURE_ADDRESS_MODE_BORDER,
+        D3D12_TEXTURE_ADDRESS_MODE_BORDER, 0.0f, 1, D3D12_COMPARISON_FUNC_LESS_EQUAL,
+        D3D12_STATIC_BORDER_COLOR_OPAQUE_WHITE);
+    samplers[1].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc;
-    rootSigDesc.Init_1_1(_countof(rootParams), rootParams, 1, &sampler,
+    rootSigDesc.Init_1_1(_countof(rootParams), rootParams, 2, samplers,
         D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
     Microsoft::WRL::ComPtr<ID3DBlob> signature;
@@ -407,7 +424,7 @@ bool Renderer::CreatePBRPipeline() {
     }
 
     // Create transform constant buffer (ring buffer)
-    const UINT transformBufferSize = MAX_INSTANCES_PER_FRAME * CB_ALIGNMENT;
+    const UINT transformBufferSize = MAX_INSTANCES_PER_FRAME * CB_ALIGNMENT * RenderDevice::FrameBufferCount;
     CD3DX12_HEAP_PROPERTIES uploadHeap(D3D12_HEAP_TYPE_UPLOAD);
     CD3DX12_RESOURCE_DESC bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(transformBufferSize);
 
@@ -426,7 +443,7 @@ bool Renderer::CreatePBRPipeline() {
     }
 
     // Create material constant buffer (ring buffer)
-    const UINT materialBufferSize = MAX_INSTANCES_PER_FRAME * CB_ALIGNMENT;
+    const UINT materialBufferSize = MAX_INSTANCES_PER_FRAME * CB_ALIGNMENT * RenderDevice::FrameBufferCount;
     bufferDesc = CD3DX12_RESOURCE_DESC::Buffer(materialBufferSize);
 
     hr = m_device->GetDevice()->CreateCommittedResource(
@@ -617,7 +634,7 @@ void Renderer::UpdateLightingFromScene(const Scene* scene)
 
     // Upload to GPU
     if (m_lightingConstantBufferBegin) {
-        memcpy(m_lightingConstantBufferBegin, &m_lightingCB, sizeof(LightingConstantBuffer));
+        memcpy(m_lightingConstantBufferBegin + m_device->GetFrameIndex() * LightingStride, &m_lightingCB, sizeof(LightingConstantBuffer));
     }
 }
 
@@ -661,7 +678,7 @@ void Renderer::DrawMeshTextured(Mesh* mesh, const glm::mat4& transform, Camera* 
     transformConsts.cameraPosition = camera->GetPosition();
     transformConsts.padding = 0.0f;
 
-    UINT transformByteOffset = m_currentTransformOffset * CB_ALIGNMENT;
+    UINT transformByteOffset = (m_device->GetFrameIndex() * MAX_INSTANCES_PER_FRAME + m_currentTransformOffset) * CB_ALIGNMENT;
     memcpy(m_transformConstantBufferBegin + transformByteOffset, &transformConsts, sizeof(TransformConstants));
 
     // Get material
@@ -677,7 +694,7 @@ void Renderer::DrawMeshTextured(Mesh* mesh, const glm::mat4& transform, Camera* 
         matConsts.normalScale = material->normalScale;
         matConsts.occlusionStrength = material->occlusionStrength;
         matConsts.emissiveFactor = material->emissiveFactor;
-        matConsts.alphaCutoff = material->alphaCutoff;
+        matConsts.alphaCutoff = material->alphaMode == Material::AlphaMode::Mask ? material->alphaCutoff : 0.0f;
 
         matConsts.hasBaseColorTexture = material->baseColorTexture ? 1.0f : 0.0f;
         matConsts.hasMetallicRoughnessTexture = material->metallicRoughnessTexture ? 1.0f : 0.0f;
@@ -697,7 +714,7 @@ void Renderer::DrawMeshTextured(Mesh* mesh, const glm::mat4& transform, Camera* 
         matConsts.normalScale = 1.0f;
         matConsts.occlusionStrength = 1.0f;
         matConsts.emissiveFactor = glm::vec3(0.0f);
-        matConsts.alphaCutoff = 0.5f;
+        matConsts.alphaCutoff = 0.0f;
         matConsts.hasBaseColorTexture = 0.0f;
         matConsts.hasMetallicRoughnessTexture = 0.0f;
         matConsts.hasNormalTexture = 0.0f;
@@ -705,17 +722,20 @@ void Renderer::DrawMeshTextured(Mesh* mesh, const glm::mat4& transform, Camera* 
         matConsts.hasEmissiveTexture = 0.0f;
     }
 
-    UINT materialByteOffset = m_currentMaterialOffset * CB_ALIGNMENT;
+    UINT materialByteOffset = (m_device->GetFrameIndex() * MAX_INSTANCES_PER_FRAME + m_currentMaterialOffset) * CB_ALIGNMENT;
     memcpy(m_materialConstantBufferBegin + materialByteOffset, &matConsts, sizeof(PBRMaterialConstants));
 
     // Bind constant buffers
     D3D12_GPU_VIRTUAL_ADDRESS transformCBAddress = m_transformConstantBuffer->GetGPUVirtualAddress() + transformByteOffset;
     D3D12_GPU_VIRTUAL_ADDRESS materialCBAddress = m_materialConstantBuffer->GetGPUVirtualAddress() + materialByteOffset;
-    D3D12_GPU_VIRTUAL_ADDRESS lightingCBAddress = m_lightingConstantBuffer->GetGPUVirtualAddress();
+    D3D12_GPU_VIRTUAL_ADDRESS lightingCBAddress = m_lightingConstantBuffer->GetGPUVirtualAddress() + m_device->GetFrameIndex() * LightingStride;
 
     commandList->SetGraphicsRootConstantBufferView(0, transformCBAddress);
     commandList->SetGraphicsRootConstantBufferView(1, materialCBAddress);
     commandList->SetGraphicsRootConstantBufferView(3, lightingCBAddress);
+    commandList->SetGraphicsRootConstantBufferView(4, m_shadowConstants->GetGPUVirtualAddress()
+        + m_device->GetFrameIndex() * CB_ALIGNMENT);
+    commandList->SetGraphicsRootDescriptorTable(5, m_device->GetSRVGPUHandle(m_shadowSRV));
 
     // Draw
     commandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);

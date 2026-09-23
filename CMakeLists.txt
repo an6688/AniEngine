@@ -96,24 +96,31 @@ target_link_libraries(imgui PUBLIC
 
 set_target_properties(imgui PROPERTIES FOLDER "ThirdParty")
 
-# Build ImGuizmo as static library (depends on ImGui)
-add_library(imguizmo STATIC
-    ${imguizmo_SOURCE_DIR}/ImGuizmo.cpp
-    ${imguizmo_SOURCE_DIR}/GraphEditor.cpp
-    ${imguizmo_SOURCE_DIR}/ImCurveEdit.cpp
-    ${imguizmo_SOURCE_DIR}/ImGradient.cpp
-    ${imguizmo_SOURCE_DIR}/ImSequencer.cpp
-)
-
-target_include_directories(imguizmo PUBLIC
-    ${imguizmo_SOURCE_DIR}
-)
-
-# ImGuizmo depends on ImGui
-target_link_libraries(imguizmo PUBLIC imgui)
-
-set_target_properties(imguizmo PROPERTIES FOLDER "ThirdParty")
+# ImGuizmo upstream now ships its own CMakeLists that defines the imguizmo target
+# but does NOT link imgui to it (it only does so for the standalone example build).
+# Without imgui linked, ImGuizmo's own .cpp files fail to find imgui.h.
+# Patch the dependency whether the target came from upstream or we built it ourselves.
+if(TARGET imguizmo)
+    target_link_libraries(imguizmo PUBLIC imgui)
+    set_target_properties(imguizmo PROPERTIES FOLDER "ThirdParty")
+else()
+    add_library(imguizmo STATIC
+        ${imguizmo_SOURCE_DIR}/ImGuizmo.cpp
+        ${imguizmo_SOURCE_DIR}/GraphEditor.cpp
+        ${imguizmo_SOURCE_DIR}/ImCurveEdit.cpp
+        ${imguizmo_SOURCE_DIR}/ImGradient.cpp
+        ${imguizmo_SOURCE_DIR}/ImSequencer.cpp
+    )
+    target_include_directories(imguizmo PUBLIC ${imguizmo_SOURCE_DIR})
+    target_link_libraries(imguizmo PUBLIC imgui)
+    set_target_properties(imguizmo PROPERTIES FOLDER "ThirdParty")
+endif()
 
 # Add subdirectories
 add_subdirectory(Engine)
 add_subdirectory(Game)
+option(ANIENGINE_BUILD_TESTS "Build D3D12 rendering smoke tests" OFF)
+if(ANIENGINE_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(Tests)
+endif()

@@ -18,6 +18,7 @@
 #include <glm/gtx/matrix_decompose.hpp>
 #include <shellapi.h>
 #include <filesystem>
+#include <stdexcept>
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -68,13 +69,38 @@ bool ImGuiManager::Initialize(HWND hwnd, RenderDevice* device) {
         return false;
     }
 
-    if (!ImGui_ImplDX12_Init(
-        device->GetDevice(),
-        RenderDevice::FrameBufferCount,
-        DXGI_FORMAT_R8G8B8A8_UNORM,
-        m_srvHeap.Get(),
-        m_srvHeap->GetCPUDescriptorHandleForHeapStart(),
-        m_srvHeap->GetGPUDescriptorHandleForHeapStart())) {
+    // Slot 63 is reserved for the shadow preview; fonts use a free-list allocator.
+    m_freeSrvIndices.clear();
+    for (UINT i = 0; i < 63; ++i) m_freeSrvIndices.push_back(i);
+    ImGui_ImplDX12_InitInfo info;
+    info.Device = device->GetDevice();
+    info.CommandQueue = device->GetCommandQueue();
+    info.NumFramesInFlight = RenderDevice::FrameBufferCount;
+    info.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
+    info.DSVFormat = DXGI_FORMAT_D32_FLOAT;
+    info.SrvDescriptorHeap = m_srvHeap.Get();
+    info.UserData = this;
+    info.SrvDescriptorAllocFn = [](ImGui_ImplDX12_InitInfo* init,
+        D3D12_CPU_DESCRIPTOR_HANDLE* cpu, D3D12_GPU_DESCRIPTOR_HANDLE* gpu) {
+        auto* self = static_cast<ImGuiManager*>(init->UserData);
+        if (self->m_freeSrvIndices.empty())
+            throw std::runtime_error("ImGui SRV heap exhausted");
+        const UINT index = self->m_freeSrvIndices.back();
+        self->m_freeSrvIndices.pop_back();
+        const UINT stride = self->m_device->GetSRVDescriptorSize();
+        *cpu = self->m_srvHeap->GetCPUDescriptorHandleForHeapStart();
+        *gpu = self->m_srvHeap->GetGPUDescriptorHandleForHeapStart();
+        cpu->ptr += SIZE_T(index) * stride;
+        gpu->ptr += UINT64(index) * stride;
+    };
+    info.SrvDescriptorFreeFn = [](ImGui_ImplDX12_InitInfo* init,
+        D3D12_CPU_DESCRIPTOR_HANDLE cpu, D3D12_GPU_DESCRIPTOR_HANDLE) {
+        auto* self = static_cast<ImGuiManager*>(init->UserData);
+        const SIZE_T start = self->m_srvHeap->GetCPUDescriptorHandleForHeapStart().ptr;
+        self->m_freeSrvIndices.push_back(static_cast<UINT>(
+            (cpu.ptr - start) / self->m_device->GetSRVDescriptorSize()));
+    };
+    if (!ImGui_ImplDX12_Init(&info)) {
         OutputDebugStringA("ImGuiManager: Failed to initialize DX12 backend\n");
         ImGui_ImplWin32_Shutdown();
         return false;
@@ -85,6 +111,19 @@ bool ImGuiManager::Initialize(HWND hwnd, RenderDevice* device) {
 
     m_initialized = true;
     return true;
+}
+
+void ImGuiManager::SetShadowMap(ID3D12Resource* resource) {
+    auto cpu = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
+    m_shadowPreview = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
+    cpu.ptr += SIZE_T(63) * m_device->GetSRVDescriptorSize();
+    m_shadowPreview.ptr += UINT64(63) * m_device->GetSRVDescriptorSize();
+    D3D12_SHADER_RESOURCE_VIEW_DESC desc = {};
+    desc.Format = DXGI_FORMAT_R32_FLOAT;
+    desc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    desc.Texture2D.MipLevels = 1;
+    desc.Shader4ComponentMapping = D3D12_ENCODE_SHADER_4_COMPONENT_MAPPING(0, 0, 0, 5);
+    m_device->GetDevice()->CreateShaderResourceView(resource, &desc, cpu);
 }
 
 void ImGuiManager::Shutdown() {
@@ -724,15 +763,20 @@ void ImGuiManager::DrawLightsPanel(SceneManager* sceneManager)
 
             ImGui::Spacing();
 
-            // Shadows checkbox (for future use)
+            // One directional shadow caster is supported in this renderer.
+            ImGui::BeginDisabled(light.type != SceneLight::Type::Directional);
             if (ImGui::Checkbox("Cast Shadows", &light.castsShadows)) {
                 scene->MarkDirty();
             }
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip("Shadow mapping (not yet implemented)");
+                ImGui::SetTooltip(light.type == SceneLight::Type::Directional
+                    ? "The first enabled directional light with this checked casts shadows."
+                    : "Point and spot shadows are not supported yet.");
             }
 
             ImGui::Spacing();
+
+            ImGui::EndDisabled();
 
             // Delete button
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.2f, 0.2f, 1.0f));
@@ -1396,6 +1440,19 @@ void ImGuiManager::DrawRenderSettingsPanel(RenderSettings& settings) {
 
     ImGui::Spacing();
 
+    ImGui::Text("Directional Shadows");
+    ImGui::Separator();
+    ImGui::Checkbox("Enable shadows", &settings.directionalShadows);
+    ImGui::Checkbox("3 x 3 PCF filtering", &settings.shadowFiltering);
+    ImGui::SliderFloat("Depth bias", &settings.shadowBias, 0.0f, 0.01f, "%.5f");
+    ImGui::SliderFloat("Slope bias", &settings.shadowSlopeBias, 0.0f, 0.02f, "%.5f");
+    ImGui::TextWrapped("Uses the first enabled directional light with Cast Shadows checked. Map: 2048 x 2048.");
+    ImGui::Checkbox("Show shadow map", &settings.showShadowMap);
+    if (settings.showShadowMap && m_shadowPreview.ptr) {
+        const float size = glm::clamp(ImGui::GetContentRegionAvail().x, 64.0f, 384.0f);
+        ImGui::Image((ImTextureID)m_shadowPreview.ptr, ImVec2(size, size));
+    }
+    ImGui::Spacing();
     ImGui::Text("Background");
     ImGui::Separator();
     ImGui::ColorEdit3("Clear Color", settings.backgroundColor);

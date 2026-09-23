@@ -12,7 +12,7 @@ class Mesh;
 class Camera;
 class Texture;
 class TextureManager;
-class Scene;
+struct Scene;
 struct Material;
 struct RenderSettings;
 
@@ -54,6 +54,8 @@ public:
 
     void BeginFrame();
     void EndFrame();
+    void RenderDirectionalShadow(const Scene* scene);
+    ID3D12Resource* GetShadowMap() const { return m_shadowMap.Get(); }
 
     void DrawMeshTextured(Mesh* mesh, const glm::mat4& transform, Camera* camera);
     void DrawCube(float deltaTime);
@@ -66,6 +68,7 @@ private:
     bool CreateSimplePipeline();
     bool CreatePBRPipeline();
     bool CreateLightingConstantBuffer();
+    bool CreateShadowResources();
 
     uint32_t GetOrCreateMaterialDescriptorTable(Material* material);
     void UpdateConstantBuffer(const glm::mat4& matrix);
@@ -95,12 +98,12 @@ private:
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_pbrPipelineState;
     Microsoft::WRL::ComPtr<ID3D12PipelineState> m_pbrPipelineStateWireframe;
 
-    // Transform constant buffer (ring buffer)
+    // Transform uploads partitioned by frame-in-flight
     Microsoft::WRL::ComPtr<ID3D12Resource> m_transformConstantBuffer;
     UINT8* m_transformConstantBufferBegin;
     UINT m_currentTransformOffset;
 
-    // Material constant buffer (ring buffer)
+    // Material uploads partitioned by frame-in-flight
     Microsoft::WRL::ComPtr<ID3D12Resource> m_materialConstantBuffer;
     UINT8* m_materialConstantBufferBegin;
     UINT m_currentMaterialOffset;
@@ -116,5 +119,23 @@ private:
     // Material descriptor cache
     std::unordered_map<Material*, uint32_t> m_materialDescriptorCache;
 
+    static constexpr UINT ShadowResolution = 2048;
+    static constexpr UINT LightingStride = (sizeof(LightingConstantBuffer) + 255) & ~255u;
+    struct ShadowConstants {
+        glm::mat4 lightViewProjection = glm::mat4(1.0f);
+        float lightIndex = -1.0f;
+        float depthBias = 0.001f;
+        float slopeBias = 0.003f;
+        float texelSize = 1.0f / ShadowResolution;
+        glm::vec4 options = glm::vec4(0.0f);
+    };
+    static_assert(sizeof(ShadowConstants) == 96, "Shadow constants must match HLSL");
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_shadowMap;
+    Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_shadowDSVHeap;
+    Microsoft::WRL::ComPtr<ID3D12RootSignature> m_shadowRootSignature;
+    Microsoft::WRL::ComPtr<ID3D12PipelineState> m_shadowPipeline;
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_shadowConstants;
+    UINT8* m_shadowConstantsBegin = nullptr;
+    uint32_t m_shadowSRV = 0;
     float m_cubeRotation;
 };

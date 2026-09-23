@@ -4,6 +4,7 @@
 #include <wrl/client.h>
 #include <string>
 #include <functional>
+#include <vector>
 #include <glm/glm.hpp>
 #include <Project/ProjectManager.h>
 
@@ -28,6 +29,11 @@ using ShowProjectDialogCallback = std::function<void()>;
 // Render settings - SINGLE SOURCE OF TRUTH
 struct RenderSettings {
 	bool wireframeMode = false;
+    bool directionalShadows = true;
+    bool shadowFiltering = true;
+    bool showShadowMap = false;
+    float shadowBias = 0.001f;
+    float shadowSlopeBias = 0.003f;
 	float ambientIntensity = 0.1f;
 	float lightIntensity = 2.0f;
 	float lightDirection[3] = { 0.5f, 1.0f, 0.5f };
@@ -61,6 +67,7 @@ public:
 	void DrawLightsPanel(SceneManager* sceneManager);
 
 	void Render();
+    void SetShadowMap(ID3D12Resource* resource);
 
 	bool ProcessMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -124,7 +131,9 @@ private:
 	RenderDevice* m_device;
 	HWND m_hwnd;
 	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> m_srvHeap;
-	bool m_initialized;
+	std::vector<UINT> m_freeSrvIndices;
+    D3D12_GPU_DESCRIPTOR_HANDLE m_shadowPreview = {};
+    bool m_initialized;
 	int m_currentTheme;
 	bool m_usingGizmo;  // True when user is dragging gizmo
 
