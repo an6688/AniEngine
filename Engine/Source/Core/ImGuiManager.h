@@ -113,7 +113,7 @@ public:
 private:
 	void SetupDocking();
 	void DrawMenuBar(SceneManager* sceneManager, ProjectManager* projectManager);
-	void DrawStatsPanel(const Timer* timer, const Camera* camera, const Scene* scene);
+	void DrawStatsPanel(const Timer* timer, const Camera* camera, const Scene* scene, const RenderSettings& settings);
 	void DrawSceneHierarchyPanel(SceneManager* sceneManager);
 	void DrawInspectorPanel(SceneManager* sceneManager);
 	void DrawRenderSettingsPanel(RenderSettings& settings);

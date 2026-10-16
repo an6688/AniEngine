@@ -56,6 +56,8 @@ bool RenderDevice::Initialize(HWND hwnd, int width, int height) {
         return false;
     }
 
+    InitializeTimings();
+
     m_viewport.TopLeftX = 0.0f;
     m_viewport.TopLeftY = 0.0f;
     m_viewport.Width = static_cast<float>(width);
@@ -81,6 +83,9 @@ void RenderDevice::Shutdown() {
 }
 
 void RenderDevice::BeginFrame() {
+    CollectTimings();
+    m_timestampMask = 0;
+    shadowDraws = sceneDraws = 0;
     m_commandAllocators[m_frameIndex]->Reset();
     m_commandList->Reset(m_commandAllocators[m_frameIndex].Get(), nullptr);
 
@@ -118,6 +123,16 @@ void RenderDevice::BindMainRenderTargets() {
 }
 
 void RenderDevice::EndFrame() {
+    const UINT submittedSlot = m_frameIndex;
+    FrameSample sample;
+    sample.updateMs = cpuUpdateMs;
+    sample.recordMs = cpuRecordStart ? ProfileNowMs() - cpuRecordStart : 0;
+    sample.shadowDraws = shadowDraws;
+    sample.sceneDraws = sceneDraws;
+    if (m_timestampHeap && m_timestampMask == 15) {
+        m_commandList->ResolveQueryData(m_timestampHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP,
+            submittedSlot * 4, 4, m_timestampReadback.Get(), submittedSlot * 4 * sizeof(UINT64));
+    }
     CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
         m_renderTargets[m_frameIndex].Get(),
         D3D12_RESOURCE_STATE_RENDER_TARGET,
@@ -135,7 +150,13 @@ void RenderDevice::EndFrame() {
     ID3D12CommandList* commandLists[] = { m_commandList.Get() };
     m_commandQueue->ExecuteCommandLists(1, commandLists);
 
-    hr = m_swapChain->Present(1, 0);
+    const double presentStart = ProfileNowMs();
+    // The swap chain is windowed (exclusive fullscreen is disabled below).
+    // Tearing requires both the creation flag and sync interval zero.
+    m_lastPresentFlags = !vsync && m_allowTearing ? DXGI_PRESENT_ALLOW_TEARING : 0;
+    hr = m_swapChain->Present(vsync ? 1 : 0, m_lastPresentFlags);
+    m_lastPresentResult = hr;
+    sample.presentMs = ProfileNowMs() - presentStart;
     if (FAILED(hr)) {
         char msg[128];
         sprintf_s(msg, "Present FAILED hr=0x%08X\n", hr);
@@ -148,7 +169,16 @@ void RenderDevice::EndFrame() {
         }
     }
 
+    const UINT64 submittedFence = m_fenceValues[submittedSlot];
+    const double fenceStart = ProfileNowMs();
     MoveToNextFrame();
+    sample.fenceMs = ProfileNowMs() - fenceStart;
+    sample.frameMs = cpuFrameStart ? ProfileNowMs() - cpuFrameStart : 0;
+    if (m_timestampHeap && m_timestampMask == 15) {
+        m_profileSamples[submittedSlot] = sample;
+        m_profileGeneration[submittedSlot] = profile.generation;
+        m_profileFence[submittedSlot] = submittedFence;
+    }
 }
 
 void RenderDevice::WaitForGPU() {
@@ -184,6 +214,7 @@ void RenderDevice::OnResize(int width, int height) {
     }
     m_depthStencil.Reset();
 
+    // Preserve creation flags, including ALLOW_TEARING, across resize.
     DXGI_SWAP_CHAIN_DESC desc = {};
     m_swapChain->GetDesc(&desc);
     HRESULT hr = m_swapChain->ResizeBuffers(
@@ -285,6 +316,12 @@ bool RenderDevice::CreateSwapChain(HWND hwnd, int width, int height) {
         return false;
     }
 
+    Microsoft::WRL::ComPtr<IDXGIFactory5> factory5;
+    BOOL allowTearing = FALSE;
+    m_allowTearing = SUCCEEDED(factory.As(&factory5)) &&
+        SUCCEEDED(factory5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING,
+            &allowTearing, sizeof(allowTearing))) && allowTearing;
+
     DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {};
     swapChainDesc.Width = width;
     swapChainDesc.Height = height;
@@ -293,6 +330,7 @@ bool RenderDevice::CreateSwapChain(HWND hwnd, int width, int height) {
     swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     swapChainDesc.BufferCount = FrameBufferCount;
     swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    swapChainDesc.Flags = m_allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
 
     Microsoft::WRL::ComPtr<IDXGISwapChain1> swapChain1;
     hr = factory->CreateSwapChainForHwnd(
@@ -519,4 +557,39 @@ void RenderDevice::MoveToNextFrame() {
     }
 
     m_fenceValues[m_frameIndex] = currentFenceValue + 1;
+}
+void RenderDevice::InitializeTimings() {
+    if (FAILED(m_commandQueue->GetTimestampFrequency(&m_timestampFrequency)) || !m_timestampFrequency) return;
+    D3D12_QUERY_HEAP_DESC desc = {};
+    desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
+    desc.Count = FrameBufferCount * 4;
+    if (FAILED(m_device->CreateQueryHeap(&desc, IID_PPV_ARGS(&m_timestampHeap)))) return;
+    auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK);
+    auto buffer = CD3DX12_RESOURCE_DESC::Buffer(FrameBufferCount * 4 * sizeof(UINT64));
+    if (FAILED(m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &buffer,
+        D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&m_timestampReadback)))) m_timestampHeap.Reset();
+}
+void RenderDevice::Timestamp(UINT boundary) {
+    if (!m_timestampHeap || boundary >= 4) return;
+    m_commandList->EndQuery(m_timestampHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, m_frameIndex * 4 + boundary);
+    m_timestampMask |= 1u << boundary;
+}
+void RenderDevice::CollectTimings() {
+    if (!m_timestampHeap || !m_profileFence[m_frameIndex] ||
+        m_fence->GetCompletedValue() < m_profileFence[m_frameIndex]) return;
+    const SIZE_T offset = m_frameIndex * 4 * sizeof(UINT64);
+    D3D12_RANGE range{offset, offset + 4 * sizeof(UINT64)};
+    void* mapped = nullptr;
+    if (FAILED(m_timestampReadback->Map(0, &range, &mapped))) return;
+    const auto* ticks = reinterpret_cast<const UINT64*>(static_cast<const char*>(mapped) + offset);
+    auto sample = m_profileSamples[m_frameIndex];
+    bool valid = true;
+    for (UINT i = 0; i < 3; ++i) {
+        valid = valid && ticks[i + 1] >= ticks[i];
+        sample.gpuMs[i] = double(ticks[i + 1] - ticks[i]) * 1000.0 / double(m_timestampFrequency);
+    }
+    D3D12_RANGE noWrite{0, 0};
+    m_timestampReadback->Unmap(0, &noWrite);
+    if (valid) profile.Add(sample, m_profileGeneration[m_frameIndex]);
+    m_profileFence[m_frameIndex] = 0;
 }

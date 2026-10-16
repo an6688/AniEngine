@@ -746,6 +746,7 @@ void Renderer::DrawMeshTextured(Mesh* mesh, const glm::mat4& transform, Camera* 
     commandList->IASetIndexBuffer(&ibv);
 
     commandList->DrawIndexedInstanced(mesh->GetIndexCount(), 1, 0, 0, 0);
+    ++m_device->sceneDraws;
 
     m_currentTransformOffset++;
     m_currentMaterialOffset++;

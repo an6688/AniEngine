@@ -315,6 +315,7 @@ void Application::Run()
 {
 	while (m_isRunning)
 	{
+		m_renderDevice->cpuFrameStart = ProfileNowMs();
 		m_input.Update();
 		if (!m_window.ProcessMessages())
 		{
@@ -324,7 +325,9 @@ void Application::Run()
 
 		m_timer.Tick();
 
+		const double updateStart = ProfileNowMs();
 		Update();
+		m_renderDevice->cpuUpdateMs = ProfileNowMs() - updateStart;
 		Render();
 	}
 }
@@ -518,6 +521,7 @@ void Application::UpdateCameraInput()
 }
 
 void Application::Render() {
+    m_renderDevice->cpuRecordStart = ProfileNowMs();
 	m_renderDevice->SetClearColor(
 		m_renderSettings.backgroundColor[0],
 		m_renderSettings.backgroundColor[1],
@@ -527,7 +531,9 @@ void Application::Render() {
 	m_renderDevice->BeginFrame();
 	m_renderer->BeginFrame();
 
+	m_renderDevice->Timestamp(0);
 	m_renderer->RenderDirectionalShadow(m_sceneManager.GetScene());
+	m_renderDevice->Timestamp(1);
 	m_renderer->UpdateLightingFromScene(m_sceneManager.GetScene());
 
 	// Draw all scene objects
@@ -549,7 +555,9 @@ void Application::Render() {
 	}
 
 	m_renderer->EndFrame();
+	m_renderDevice->Timestamp(2);
 	m_imguiManager->Render();
+	m_renderDevice->Timestamp(3);
 	m_renderDevice->EndFrame();
 }
 

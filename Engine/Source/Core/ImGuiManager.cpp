@@ -19,6 +19,9 @@
 #include <shellapi.h>
 #include <filesystem>
 #include <stdexcept>
+#include <fstream>
+#include <unordered_set>
+#include "Rendering/Texture.h"
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
@@ -830,7 +833,7 @@ void ImGuiManager::DrawUI(
     const Scene* scene = sceneManager ? sceneManager->GetScene() : nullptr;
 
     if (showStatsPanel) {
-        DrawStatsPanel(timer, camera, scene);
+        DrawStatsPanel(timer, camera, scene, settings);
     }
     if (showScenePanel) {
         DrawSceneHierarchyPanel(sceneManager);
@@ -1077,7 +1080,7 @@ void ImGuiManager::DrawMenuBar(SceneManager* sceneManager, ProjectManager* proje
     }
 }
 
-void ImGuiManager::DrawStatsPanel(const Timer* timer, const Camera* camera, const Scene* scene) {
+void ImGuiManager::DrawStatsPanel(const Timer* timer, const Camera* camera, const Scene* scene, const RenderSettings& settings) {
     ImGui::Begin("Stats", &showStatsPanel);
 
     ImGui::Text("Performance");
@@ -1086,6 +1089,107 @@ void ImGuiManager::DrawStatsPanel(const Timer* timer, const Camera* camera, cons
     ImGui::Text("Frame Time: %.3f ms", timer ? timer->GetDeltaTime() * 1000.0f : 0.0f);
 
     ImGui::Spacing();
+
+    auto& profile = m_device->profile;
+    if (ImGui::Checkbox("VSync (display pacing)", &m_device->vsync)) {
+        profile.capturing = false;
+        profile.samples.clear();
+        ++profile.generation;
+    }
+    if (!m_device->vsync) {
+        ImGui::TextWrapped(m_device->SupportsTearing()
+            ? "VSync off: windowed tearing enabled. Driver limits may still apply."
+            : "VSync off: tearing unavailable; windowed presentation may still be paced.");
+    }
+    ImGui::Text("Render size: %d x %d", m_device->GetWidth(), m_device->GetHeight());
+    if (!m_device->HasGpuTimings()) {
+        ImGui::TextWrapped("GPU timestamps unavailable on this device.");
+    } else {
+        if (ImGui::Button("Start 600-frame capture")) {
+            profile.Start();
+            profile.context = "scene=" + (scene ? scene->name : std::string("none")) +
+                ";width=" + std::to_string(m_device->GetWidth()) + ";height=" + std::to_string(m_device->GetHeight()) +
+                ";vsync=" + std::to_string(m_device->vsync) + ";tearing_supported=" + std::to_string(m_device->SupportsTearing()) +
+                ";tearing_enabled=" + std::to_string(!m_device->vsync && m_device->SupportsTearing()) + ";shadows=" + std::to_string(settings.directionalShadows) +
+                ";pcf=" + std::to_string(settings.shadowFiltering) + ";depth_bias=" + std::to_string(settings.shadowBias) +
+                ";slope_bias=" + std::to_string(settings.shadowSlopeBias);
+            if (camera) {
+                auto position = camera->GetPosition(); auto target = camera->GetTarget();
+                profile.context += ";camera=" + std::to_string(position.x) + "/" + std::to_string(position.y) + "/" + std::to_string(position.z) +
+                    ";target=" + std::to_string(target.x) + "/" + std::to_string(target.y) + "/" + std::to_string(target.z);
+            }
+        }
+        if (profile.capturing) {
+            ImGui::Text("Warm-up remaining: %u | Samples: %zu / 600", profile.warmup, profile.samples.size());
+        } else if (!profile.samples.empty()) ImGui::Text("Capture stopped: %zu samples", profile.samples.size());
+        ImGui::TextWrapped("Keep scene, camera, lights and window size fixed during capture. CPU update includes editor/profiler UI. GPU results arrive asynchronously.");
+        const auto& latest = profile.latest;
+        ImGui::Text("Draws: shadow %u | scene %u (UI excluded)", latest.shadowDraws, latest.sceneDraws);
+        auto row = [&](const char* label, auto getter) {
+            std::vector<double> values;
+            values.reserve(profile.samples.size());
+            for (const auto& sample : profile.samples) values.push_back(getter(sample));
+            ImGui::TableNextRow(); ImGui::TableNextColumn(); ImGui::TextUnformatted(label);
+            ImGui::TableNextColumn(); ImGui::Text("%.3f", getter(latest));
+            for (double percentile : {0.50, 0.95, 0.99}) {
+                ImGui::TableNextColumn();
+                if (values.empty()) ImGui::TextUnformatted("--");
+                else ImGui::Text("%.3f", ProfilePercentile(values, percentile));
+            }
+        };
+        if (ImGui::BeginTable("Stage timings", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg)) {
+            for (const char* title : {"Stage (ms)", "Latest", "p50", "p95", "p99"}) ImGui::TableSetupColumn(title);
+            ImGui::TableHeadersRow();
+            row("CPU frame", [](const FrameSample& s) { return s.frameMs; });
+            row("CPU update", [](const FrameSample& s) { return s.updateMs; });
+            row("CPU record", [](const FrameSample& s) { return s.recordMs; });
+            row("Present call", [](const FrameSample& s) { return s.presentMs; });
+            row("Frame fence", [](const FrameSample& s) { return s.fenceMs; });
+            row("GPU shadow", [](const FrameSample& s) { return s.gpuMs[0]; });
+            row("GPU scene", [](const FrameSample& s) { return s.gpuMs[1]; });
+            row("GPU UI", [](const FrameSample& s) { return s.gpuMs[2]; });
+            ImGui::EndTable();
+        }
+        ImGui::TextWrapped("CPU and GPU overlap: do not add their timings. CPU frame includes pacing; these are not input-to-display latency measurements.");
+        if (!profile.capturing && !profile.samples.empty() && ImGui::Button("Export capture CSV...")) {
+            char filename[MAX_PATH] = "frame-capture.csv";
+            OPENFILENAMEA dialog = {};
+            dialog.lStructSize = sizeof(dialog); dialog.hwndOwner = m_hwnd;
+            dialog.lpstrFilter = "CSV files\0*.csv\0"; dialog.lpstrFile = filename;
+            dialog.nMaxFile = MAX_PATH; dialog.lpstrDefExt = "csv";
+            dialog.Flags = OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR;
+            if (GetSaveFileNameA(&dialog)) {
+                std::ofstream file(filename);
+                file << "# " << profile.context << "\n";
+                file << "sample,cpu_frame_ms,cpu_update_ms,cpu_record_ms,present_ms,fence_ms,gpu_shadow_ms,gpu_scene_ms,gpu_ui_ms,shadow_draws,scene_draws\n";
+                size_t index = 0;
+                for (const auto& sample : profile.samples) {
+                    file << index++ << ',' << sample.frameMs << ',' << sample.updateMs << ',' << sample.recordMs << ','
+                        << sample.presentMs << ',' << sample.fenceMs << ',' << sample.gpuMs[0] << ',' << sample.gpuMs[1] << ','
+                        << sample.gpuMs[2] << ',' << sample.shadowDraws << ',' << sample.sceneDraws << '\n';
+                }
+                file.flush();
+                if (!file) MessageBoxA(m_hwnd, "Could not write capture.", "Export failed", MB_OK | MB_ICONERROR);
+            }
+        }
+    }
+    // Count shared resources only once; these are scoped figures, not total VRAM.
+    std::unordered_set<const Mesh*> meshes;
+    std::unordered_set<ID3D12Resource*> textures;
+    UINT64 meshBytes = 0, textureBytes = 0;
+    if (scene) for (const auto& object : scene->objects) {
+        for (const auto& instance : object->meshInstances) if (instance.mesh && meshes.insert(instance.mesh.get()).second)
+            meshBytes += UINT64(instance.mesh->GetVertexBufferView().SizeInBytes) + instance.mesh->GetIndexBufferView().SizeInBytes;
+        for (const auto& texture : object->textures) if (texture && texture->GetResource() && textures.insert(texture->GetResource()).second) {
+            auto desc = texture->GetResource()->GetDesc();
+            textureBytes += m_device->GetDevice()->GetResourceAllocationInfo(0, 1, &desc).SizeInBytes;
+        }
+    }
+    ImGui::Text("Mesh buffer payload: %.2f MiB", double(meshBytes) / (1024 * 1024));
+    ImGui::Text("Scene texture allocations: %.2f MiB", double(textureBytes) / (1024 * 1024));
+    ImGui::Text("Main SRV slots allocated: %u / 1024", m_device->GetUsedDescriptors());
+    ImGui::TextWrapped("Memory figures exclude render targets, shadow map, upload buffers, UI and driver allocations.");
+    ImGui::Separator();
 
     ImGui::Text("Scene");
     ImGui::Separator();

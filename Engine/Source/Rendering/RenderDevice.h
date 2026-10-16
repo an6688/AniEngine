@@ -4,6 +4,7 @@
 #include <dxgi1_6.h>
 #include <wrl/client.h>
 #include <cstdint>
+#include "FrameProfile.h"
 
 // DirectX 12 rendering device - LOW LEVEL DX12 PLUMBING
 // Owns: Device, swap chain, command lists, synchronization, descriptor heaps
@@ -18,6 +19,18 @@ public:
     bool Initialize(HWND hwnd, int width, int height);
     void Shutdown();
 
+    FrameProfile profile;
+    bool vsync = true;
+    bool SupportsTearing() const { return m_allowTearing; }
+    HRESULT GetLastPresentResult() const { return m_lastPresentResult; }
+    UINT GetLastPresentFlags() const { return m_lastPresentFlags; }
+    double cpuFrameStart = 0, cpuUpdateMs = 0, cpuRecordStart = 0;
+    unsigned shadowDraws = 0, sceneDraws = 0;
+    void Timestamp(UINT boundary);
+    bool HasGpuTimings() const { return m_timestampHeap != nullptr; }
+    UINT GetUsedDescriptors() const { return m_nextSRVIndex; }
+    int GetWidth() const { return m_width; }
+    int GetHeight() const { return m_height; }
     void BeginFrame();
     void EndFrame();
     void BindMainRenderTargets();
@@ -46,6 +59,18 @@ public:
     }
 
 private:
+    bool m_allowTearing = false;
+    HRESULT m_lastPresentResult = S_OK;
+    UINT m_lastPresentFlags = 0;
+    void InitializeTimings();
+    void CollectTimings();
+    Microsoft::WRL::ComPtr<ID3D12QueryHeap> m_timestampHeap;
+    Microsoft::WRL::ComPtr<ID3D12Resource> m_timestampReadback;
+    UINT64 m_timestampFrequency = 0;
+    UINT64 m_profileFence[FrameBufferCount] = {};
+    FrameSample m_profileSamples[FrameBufferCount];
+    unsigned m_profileGeneration[FrameBufferCount] = {};
+    UINT m_timestampMask = 0;
     bool CreateDevice();
     bool CreateCommandQueue();
     bool CreateSwapChain(HWND hwnd, int width, int height);

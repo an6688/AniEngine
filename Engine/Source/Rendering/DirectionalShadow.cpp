@@ -171,6 +171,7 @@ void Renderer::RenderDirectionalShadow(const Scene* scene) {
                 commands->IASetVertexBuffers(0, 1, &vertex);
                 commands->IASetIndexBuffer(&index);
                 commands->DrawIndexedInstanced(mesh->GetIndexCount(), 1, 0, 0, 0);
+                ++m_device->shadowDraws;
             }
         }
     }

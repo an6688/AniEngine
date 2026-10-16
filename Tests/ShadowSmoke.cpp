@@ -101,9 +101,13 @@ int main() {
         Require(SUCCEEDED(device.GetDevice()->CreateCommittedResource(&readHeap, D3D12_HEAP_FLAG_NONE,
             &readDesc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback))), "Readback allocation failed");
         auto render = [&]() {
+            device.cpuFrameStart = ProfileNowMs();
+            device.cpuRecordStart = device.cpuFrameStart;
             device.BeginFrame();
             renderer.BeginFrame();
+            device.Timestamp(0);
             renderer.RenderDirectionalShadow(&scene);
+            device.Timestamp(1);
             renderer.UpdateLightingFromScene(&scene);
             auto* commands = device.GetCommandList();
             commands->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
@@ -112,6 +116,7 @@ int main() {
             commands->ClearRenderTargetView(rtv, clear, 0, nullptr);
             for (const auto& object : scene.objects) if (object->isVisible)
                 renderer.DrawMeshTextured(object->meshInstances[0].mesh.get(), glm::mat4(1), &camera);
+            device.Timestamp(2);
             auto barrier = CD3DX12_RESOURCE_BARRIER::Transition(color.Get(),
                 D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_SOURCE);
             commands->ResourceBarrier(1, &barrier);
@@ -127,6 +132,7 @@ int main() {
             ImGui::TextUnformatted("Font upload and rendering");
             ImGui::End();
             ui.Render();
+            device.Timestamp(3);
             device.EndFrame();
             device.WaitForGPU();
             void* mapped = nullptr;
@@ -167,6 +173,29 @@ int main() {
         render();
         scene.objects.clear();
         render();
+        Require(device.HasGpuTimings(), "GPU timestamps unavailable in smoke test");
+        device.vsync = false;
+        render();
+        Require(SUCCEEDED(device.GetLastPresentResult()), "VSync-off Present failed");
+        Require(device.GetLastPresentFlags() == (device.SupportsTearing() ? DXGI_PRESENT_ALLOW_TEARING : 0), "Incorrect VSync-off flags");
+        device.OnResize(640, 480);
+        render();
+        Require(SUCCEEDED(device.GetLastPresentResult()), "VSync-off Present failed after resize");
+        device.OnResize(512, 512);
+        device.vsync = true;
+        render();
+        Require(SUCCEEDED(device.GetLastPresentResult()) && device.GetLastPresentFlags() == 0, "VSync-on flags invalid");
+        device.vsync = false;
+        std::printf("Windowed tearing supported: %s\n", device.SupportsTearing() ? "yes" : "no");
+        device.profile.Start();
+        for (unsigned i = 0; i < 725; ++i) render();
+        Require(device.profile.samples.size() == 600 && !device.profile.capturing, "Capture did not stop at 600 samples");
+        for (const auto& sample : device.profile.samples) {
+            Require(std::isfinite(sample.frameMs) && sample.frameMs >= 0, "Invalid CPU timing");
+            for (double ms : sample.gpuMs) Require(std::isfinite(ms) && ms >= 0, "Invalid GPU timing");
+        }
+        Require(ProfilePercentile({1, 2, 3, 4, 100}, 0.5) == 3, "Median calculation");
+        Require(ProfilePercentile({1, 2, 3, 4, 100}, 0.99) == 100, "Tail calculation");
         Require(SUCCEEDED(device.GetDevice()->GetDeviceRemovedReason()), "Device was removed");
         ComPtr<ID3D12InfoQueue> info;
         if (SUCCEEDED(device.GetDevice()->QueryInterface(IID_PPV_ARGS(&info)))) {
