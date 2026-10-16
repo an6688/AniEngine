@@ -287,13 +287,13 @@ void Application::Run()
 {
 	while (m_isRunning)
 	{
+		m_input.Update();
 		if (!m_window.ProcessMessages())
 		{
 			m_isRunning = false;
 			break;
 		}
 
-		m_input.Update();
 		m_timer.Tick();
 
 		Update();
@@ -332,11 +332,8 @@ void Application::Update()
 		m_camera->SetAspectRatio(static_cast<float>(m_pendingWidth) / static_cast<float>(m_pendingHeight));
 		m_resizePending = false;
 	}
-	m_input.Update();
 	float deltaTime = m_timer.GetDeltaTime();
 
-	UpdateCameraInput();
-	m_camera->Update(deltaTime);
 	UpdateWindowTitle();
 	m_imguiManager->BeginFrame();
 
@@ -391,13 +388,16 @@ void Application::Update()
 		return;
 	}
 
+	UpdateCameraInput();
+	m_camera->Update(deltaTime);
+
 	// Process keyboard shortcuts
 	m_imguiManager->ProcessShortcuts(&m_sceneManager, m_window.IsActive());
 
 	// Handle camera input only if not interacting with UI
 	if (!m_imguiManager->WantCaptureMouse() && !m_imguiManager->IsUsingGizmo()) {
 		// Viewport picking on left click
-		if (m_input.IsMouseButtonPressed(0) && m_window.IsActive()) {
+		if (m_input.IsMouseButtonPressed(0) && m_window.IsActive() && !m_input.IsKeyDown(VK_MENU)) {
 			m_imguiManager->HandleViewportClick(
 				m_input.GetMouseX(),
 				m_input.GetMouseY(),
@@ -421,7 +421,8 @@ void Application::Update()
 void Application::UpdateCameraInput()
 {
 	// Prevent camera movement when mouse is over imgui
-	if (m_imguiManager && m_imguiManager->WantCaptureMouse()) {
+	if (!m_window.IsActive() || m_showProjectDialog ||
+		(m_imguiManager && (m_imguiManager->WantCaptureMouse() || ImGui::GetIO().WantTextInput))) {
 		return;
 	}
 
@@ -469,17 +470,11 @@ void Application::UpdateCameraInput()
 		m_camera->Zoom(static_cast<float>(-wheelDelta) * 0.3f);
 	}
 
-	// F key: Frame model (with debounce)
-	bool fKeyIsDown = m_input.IsKeyDown('F');
-	if (fKeyIsDown && !m_fKeyWasDown)
-	{
-		FrameScene();
-	}
-	m_fKeyWasDown = fKeyIsDown;
 
-	if (!altDown)  // Only when Alt is not held
+	if (!altDown && !m_input.IsKeyDown(VK_CONTROL))
 	{
-		float moveSpeed = m_camera->GetDistance() * deltaTime * 0.5f;
+		// Pan already scales by camera distance; do not apply it twice.
+		float moveSpeed = deltaTime * 20.0f;
 
 		// Shift for faster movement
 		if (m_input.IsKeyDown(VK_SHIFT)) {

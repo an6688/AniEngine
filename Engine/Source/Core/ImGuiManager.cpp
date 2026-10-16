@@ -62,6 +62,16 @@ bool ImGuiManager::Initialize(HWND hwnd, RenderDevice* device) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
+    // Use a readable Windows UI font rather than the tiny default bitmap font.
+    char windowsDirectory[MAX_PATH] = {};
+    if (GetWindowsDirectoryA(windowsDirectory, MAX_PATH)) {
+        auto fontPath = std::filesystem::path(windowsDirectory) / "Fonts" / "segoeui.ttf";
+        if (std::filesystem::exists(fontPath)) {
+            io.Fonts->AddFontFromFileTTF(fontPath.string().c_str(), 18.0f);
+        }
+    }
+    if (io.Fonts->Fonts.empty()) io.Fonts->AddFontDefault();
+
     ApplyTheme(0);
 
     if (!ImGui_ImplWin32_Init(hwnd)) {
@@ -242,23 +252,23 @@ void ImGuiManager::ProcessShortcuts(SceneManager* sceneManager, bool windowFocus
         }
     }
 
-    // W - Translate gizmo
-    if (keyPressed('W')) {
+    // Number keys keep transform tools separate from camera movement.
+    if (!ctrlHeld && keyPressed('1')) {
         gizmoMode = GizmoMode::Translate;
     }
 
-    // E - Rotate gizmo
-    if (keyPressed('E')) {
+    // 2 - Rotate gizmo
+    if (!ctrlHeld && keyPressed('2')) {
         gizmoMode = GizmoMode::Rotate;
     }
 
-    // R - Scale gizmo
-    if (keyPressed('R')) {
+    // 3 - Scale gizmo
+    if (!ctrlHeld && keyPressed('3')) {
         gizmoMode = GizmoMode::Scale;
     }
 
-    // Q - Toggle gizmo local/world
-    if (keyPressed('Q')) {
+    // L - Toggle gizmo local/world
+    if (!ctrlHeld && keyPressed('L')) {
         gizmoLocal = !gizmoLocal;
     }
 }
@@ -329,7 +339,7 @@ bool ImGuiManager::RayIntersectsAABB(const glm::vec3& rayOrigin, const glm::vec3
 }
 
 void ImGuiManager::HandleViewportClick(int mouseX, int mouseY, Camera* camera, SceneManager* sceneManager) {
-    if (!camera || !sceneManager || !sceneManager->GetScene()) {
+    if (!camera || !sceneManager || !sceneManager->GetScene() || ImGuizmo::IsOver() || ImGuizmo::IsUsing()) {
         return;
     }
 
@@ -1113,23 +1123,21 @@ void ImGuiManager::DrawGizmoControls() {
 
     ImGui::Checkbox("Enable Gizmo", &gizmoEnabled);
 
-    if (ImGui::RadioButton("Translate (W)", gizmoMode == GizmoMode::Translate)) {
+    if (ImGui::RadioButton("Translate (1)", gizmoMode == GizmoMode::Translate)) {
         gizmoMode = GizmoMode::Translate;
     }
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Rotate (E)", gizmoMode == GizmoMode::Rotate)) {
+    if (ImGui::RadioButton("Rotate (2)", gizmoMode == GizmoMode::Rotate)) {
         gizmoMode = GizmoMode::Rotate;
     }
-    ImGui::SameLine();
-    if (ImGui::RadioButton("Scale (R)", gizmoMode == GizmoMode::Scale)) {
+    if (ImGui::RadioButton("Scale (3)", gizmoMode == GizmoMode::Scale)) {
         gizmoMode = GizmoMode::Scale;
     }
 
-    if (ImGui::Checkbox("Local Space (Q)", &gizmoLocal)) {
+    if (ImGui::Checkbox("Local Space (L)", &gizmoLocal)) {
         // Toggle handled
     }
 
-    ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "Click in viewport to select objects");
+    ImGui::TextWrapped("Viewport: WASD move, Q/E down/up, Shift faster. Alt + left drag orbits, Alt + middle drag pans, wheel zooms. F frames selection or scene. Click an object to select it.");
 
     if (m_usingGizmo) {
         ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "Dragging...");

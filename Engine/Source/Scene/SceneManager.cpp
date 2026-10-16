@@ -327,8 +327,8 @@ bool SceneManager::AddObjectFromFile(const std::string& glTFPath, const glm::vec
     m_scene->objects.push_back(std::move(object));
     m_scene->MarkDirty();
 
-    // Select the newly added object
-    SelectObject(static_cast<int>(m_scene->objects.size()) - 1);
+    // Leave the viewport ready for navigation after import.
+    ClearSelection();
 
     return true;
 }

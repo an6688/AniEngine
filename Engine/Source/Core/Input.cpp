@@ -1,5 +1,6 @@
 #include "Input.h"
 #include <cstring>
+#include <windowsx.h>
 
 Input::Input()
     : m_mouseX(0)
@@ -28,8 +29,8 @@ void Input::Initialize()
 void Input::Update()
 {
     // Calculate mouse delta
-    m_mouseDeltaX = m_mouseX - m_mouseXPrev;
-    m_mouseDeltaY = m_mouseY - m_mouseYPrev;
+    m_mouseDeltaX = 0;
+    m_mouseDeltaY = 0;
 
     // Update previous frame state
     m_mouseXPrev = m_mouseX;
@@ -45,9 +46,16 @@ void Input::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 {
     switch (msg)
     {
+    case WM_KILLFOCUS:
+        memset(m_keys, 0, sizeof(m_keys));
+        memset(m_mouseButtons, 0, sizeof(m_mouseButtons));
+        break;
+
     case WM_MOUSEMOVE:
-        m_mouseX = LOWORD(lParam);
-        m_mouseY = HIWORD(lParam);
+        m_mouseX = GET_X_LPARAM(lParam);
+        m_mouseY = GET_Y_LPARAM(lParam);
+        m_mouseDeltaX = m_mouseX - m_mouseXPrev;
+        m_mouseDeltaY = m_mouseY - m_mouseYPrev;
         break;
 
     case WM_LBUTTONDOWN:
@@ -75,7 +83,7 @@ void Input::ProcessMessage(UINT msg, WPARAM wParam, LPARAM lParam)
         break;
 
     case WM_MOUSEWHEEL:
-        m_mouseWheelDelta = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
+        m_mouseWheelDelta += GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
         break;
 
     case WM_KEYDOWN:

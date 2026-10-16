@@ -63,7 +63,6 @@ private:
     float m_modelRotation;
 
     bool m_isRunning;
-    bool m_fKeyWasDown = false;
     bool m_resizePending = false;
     bool m_showProjectDialog = true;
 
