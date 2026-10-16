@@ -95,6 +95,8 @@ public:
 	void SetProjectManager(ProjectManager* pm) { m_projectManager = pm; }
 	void SetSceneManager(SceneManager* sm) { m_sceneManager = sm; }
 
+    void RequestSceneSave() { SaveSceneFileDialog(); }
+
 	// Panel visibility
 	bool showStatsPanel = true;
 	bool showScenePanel = true;
@@ -121,7 +123,10 @@ private:
 
 	void OpenModelFileDialog();
 	void OpenSceneFileDialog();
-	void SaveSceneFileDialog();
+	void SaveSceneFileDialog(bool exportCopy = false);
+    void DrawSceneSaveDialog();
+    bool m_requestSceneSave = false;
+    char m_sceneSaveName[128] = {};
 
 	// Picking helpers
 	glm::vec3 ScreenToWorldRay(int mouseX, int mouseY, Camera* camera);

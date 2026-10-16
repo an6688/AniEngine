@@ -825,6 +825,7 @@ void ImGuiManager::DrawUI(
 
     SetupDocking();
     DrawMenuBar(sceneManager, projectManager);
+    DrawSceneSaveDialog();
 
     const Scene* scene = sceneManager ? sceneManager->GetScene() : nullptr;
 
@@ -961,6 +962,12 @@ void ImGuiManager::DrawMenuBar(SceneManager* sceneManager, ProjectManager* proje
             }
             if (ImGui::MenuItem("Open Scene...", "Ctrl+O")) {
                 OpenSceneFileDialog();
+            }
+            if (hasProject && ImGui::MenuItem("Import Scene...")) {
+                OpenSceneFileDialog();
+            }
+            if (ImGui::MenuItem("Export Scene...")) {
+                SaveSceneFileDialog(true);
             }
             if (ImGui::MenuItem("Save Scene", "Ctrl+S")) {
                 if (sceneManager && !sceneManager->GetScenePath().empty()) {
@@ -1545,7 +1552,12 @@ void ImGuiManager::OpenSceneFileDialog() {
     }
 }
 
-void ImGuiManager::SaveSceneFileDialog() {
+void ImGuiManager::SaveSceneFileDialog(bool exportCopy) {
+    if (!exportCopy && m_projectManager && m_projectManager->HasOpenProject()) {
+        strncpy_s(m_sceneSaveName, m_sceneManager ? m_sceneManager->GetSceneName().c_str() : "Untitled", _TRUNCATE);
+        m_requestSceneSave = true;
+        return;
+    }
     OPENFILENAMEA ofn = {};
     char filename[MAX_PATH] = "";
     char initialDir[MAX_PATH] = "";
@@ -1562,13 +1574,52 @@ void ImGuiManager::SaveSceneFileDialog() {
     ofn.lpstrFile = filename;
     ofn.nMaxFile = MAX_PATH;
     ofn.lpstrInitialDir = initialDir[0] ? initialDir : nullptr;
-    ofn.lpstrTitle = "Save Scene As";
+    ofn.lpstrTitle = exportCopy ? "Export Scene (references existing assets)" : "Save Scene As";
     ofn.lpstrDefExt = "scene";
     ofn.Flags = OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR;
 
     if (GetSaveFileNameA(&ofn)) {
-        if (m_saveSceneAsCallback) {
+        if (exportCopy) {
+            if (m_sceneManager && !m_sceneManager->SaveSceneAs(filename, false))
+                MessageBoxA(m_hwnd, "The scene could not be exported.", "Export failed", MB_OK | MB_ICONERROR);
+        } else if (m_saveSceneAsCallback) {
             m_saveSceneAsCallback(std::string(filename));
         }
     }
+}
+void ImGuiManager::DrawSceneSaveDialog() {
+    if (m_requestSceneSave) {
+        ImGui::OpenPopup("Save Project Scene");
+        m_requestSceneSave = false;
+    }
+    if (!ImGui::BeginPopupModal("Save Project Scene", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
+    if (!m_projectManager || !m_projectManager->HasOpenProject()) {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    ImGui::TextUnformatted("Scene name");
+    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+    ImGui::InputText("##SceneName", m_sceneSaveName, sizeof(m_sceneSaveName));
+    const std::string name = m_sceneSaveName;
+    bool valid = !name.empty() && name != "." && name != ".." &&
+        name.find_first_of("<>:\"/\\|?*\r\n\t") == std::string::npos &&
+        name.back() != '.' && name.back() != ' ';
+    auto destination = m_projectManager->GetFullScenePath(name);
+    ImGui::TextUnformatted("Saved in this project's Scenes folder.");
+    ImGui::BeginDisabled(!valid);
+    if (ImGui::Button("Save")) {
+        std::error_code error;
+        bool exists = std::filesystem::exists(destination, error);
+        if (!exists || MessageBoxA(m_hwnd, "Replace the existing scene with this name?", "Replace scene", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+            std::filesystem::create_directories(m_projectManager->GetProject()->GetScenesPath(), error);
+            if (error) MessageBoxA(m_hwnd, "The Scenes folder could not be created.", "Save failed", MB_OK | MB_ICONERROR);
+            else if (m_saveSceneAsCallback) m_saveSceneAsCallback(destination);
+            ImGui::CloseCurrentPopup();
+        }
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+    ImGui::EndPopup();
 }

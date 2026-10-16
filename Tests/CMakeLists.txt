@@ -12,3 +12,9 @@ add_custom_command(TARGET ShadowSmoke POST_BUILD
     "${CMAKE_SOURCE_DIR}/Engine/Shaders" "$<TARGET_FILE_DIR:ShadowSmoke>/Shaders")
 add_test(NAME directional_shadow_smoke COMMAND ShadowSmoke)
 set_tests_properties(directional_shadow_smoke PROPERTIES WORKING_DIRECTORY "$<TARGET_FILE_DIR:ShadowSmoke>")
+
+add_executable(ScenePersistence ScenePersistence.cpp ${SMOKE_ENGINE_SOURCES})
+target_include_directories(ScenePersistence PRIVATE ${ENGINE_INCLUDES})
+target_link_libraries(ScenePersistence PRIVATE ${ENGINE_LIBRARIES})
+target_compile_definitions(ScenePersistence PRIVATE ${ENGINE_DEFINITIONS})
+add_test(NAME scene_persistence COMMAND ScenePersistence)

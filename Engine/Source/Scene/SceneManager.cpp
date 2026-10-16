@@ -8,6 +8,7 @@
 #include <fstream>
 #include <filesystem>
 #include <sstream>
+#include <stdexcept>
 
 // Simple JSON-ish serialization (you could replace with nlohmann/json later)
 namespace {
@@ -115,7 +116,11 @@ bool SceneManager::LoadScene(const std::string& filePath) {
         return false;
     }
 
-    NewScene();
+    // Keep the current scene intact if parsing or asset loading fails.
+    if (m_device) m_device->WaitForGPU();
+    auto previousScene = std::move(m_scene);
+    m_scene = std::make_unique<Scene>();
+    try {
     m_scene->filePath = filePath;
     m_scene->lights.clear();  // Clear the default light that NewScene adds
 
@@ -209,8 +214,11 @@ bool SceneManager::LoadScene(const std::string& filePath) {
         // Object properties (only if we're in an object context)
         else if (currentObject) {
             if (key == "asset") {
-                currentObject->assetPath = value;
-                LoadModelIntoObject(currentObject, value);
+                auto assetPath = std::filesystem::path(value);
+                if (assetPath.is_relative()) assetPath = std::filesystem::path(filePath).parent_path() / assetPath;
+                currentObject->assetPath = std::filesystem::absolute(assetPath).lexically_normal().string();
+                if (!LoadModelIntoObject(currentObject, currentObject->assetPath))
+                    throw std::runtime_error("Unable to load scene asset");
             }
             else if (key == "position") {
                 currentObject->position = StringToVec3(value);
@@ -240,12 +248,14 @@ bool SceneManager::LoadScene(const std::string& filePath) {
         m_scene->name = p.stem().string();
     }
 
-    // Select first object so gizmo shows up
-    if (!m_scene->objects.empty()) {
-        m_scene->selectedObjectIndex = 0;
-    }
-
+    ClearSelection();
     return true;
+    } catch (const std::exception& error) {
+        if (m_device) m_device->WaitForGPU();
+        m_scene = std::move(previousScene);
+        OutputDebugStringA(error.what());
+        return false;
+    }
 }
 
 bool SceneManager::SaveScene() {
@@ -255,26 +265,28 @@ bool SceneManager::SaveScene() {
     return SaveSceneAs(m_scene->filePath);
 }
 
-bool SceneManager::SaveSceneAs(const std::string& filePath) {
+bool SceneManager::SaveSceneAs(const std::string& filePath, bool updateIdentity) {
     // Update scene name from filename
     std::filesystem::path p(filePath);
-    m_scene->name = p.stem().string();
-    m_scene->filePath = filePath;
-
-    std::ofstream file(filePath);
+    auto temporaryPath = p;
+    temporaryPath += ".tmp";
+    std::ofstream file(temporaryPath);
     if (!file.is_open()) {
         OutputDebugStringA(("Failed to save scene file: " + filePath + "\n").c_str());
         return false;
     }
 
     file << "# AniEngine Scene File\n";
-    file << "scene_name: " << m_scene->name << "\n";
+    file << "scene_name: " << p.stem().string() << "\n";
     file << "ambient: " << Vec3ToString(m_scene->ambientColor) << "\n";
     file << "\n";
 
     for (const auto& obj : m_scene->objects) {
         file << "object: " << obj->name << "\n";
-        file << "  asset: " << obj->assetPath << "\n";
+        std::error_code pathError;
+        auto relativeAsset = std::filesystem::relative(obj->assetPath,
+            std::filesystem::absolute(p).parent_path(), pathError);
+        file << "  asset: " << (pathError ? obj->assetPath : relativeAsset.generic_string()) << "\n";
         file << "  position: " << Vec3ToString(obj->position) << "\n";
         file << "  rotation: " << QuatToString(obj->rotation) << "\n";
         file << "  scale: " << Vec3ToString(obj->scale) << "\n";
@@ -298,7 +310,20 @@ bool SceneManager::SaveSceneAs(const std::string& filePath) {
         file << "\n";
     }
 
-    m_scene->isDirty = false;
+    file.flush();
+    bool writeSucceeded = file.good();
+    file.close();
+    if (!writeSucceeded || file.fail() ||
+        !MoveFileExW(temporaryPath.c_str(), p.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        std::error_code error;
+        std::filesystem::remove(temporaryPath, error);
+        return false;
+    }
+    if (updateIdentity) {
+        m_scene->name = p.stem().string();
+        m_scene->filePath = filePath;
+        m_scene->isDirty = false;
+    }
 
     OutputDebugStringA(("Scene saved: " + filePath + "\n").c_str());
     return true;

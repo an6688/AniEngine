@@ -9,7 +9,7 @@ class SceneManager;
 // Manages project creation, loading, saving, and asset import
 class ProjectManager {
 public:
-    ProjectManager();
+    explicit ProjectManager(bool persistRecentProjects = true);
     ~ProjectManager();
 
     // Project lifecycle
@@ -56,6 +56,7 @@ private:
     void LoadRecentProjects();
     void SaveRecentProjects();
 
+    bool m_persistRecentProjects;
     std::unique_ptr<Project> m_project;
     std::vector<RecentProject> m_recentProjects;
 

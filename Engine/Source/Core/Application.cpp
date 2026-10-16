@@ -125,27 +125,55 @@ bool Application::Initialize()
 		m_sceneManager.NewScene();
 		});
 
-	m_imguiManager->SetOpenSceneCallback([this](const std::string& path) {
-		m_sceneManager.LoadScene(path);
-		FrameScene();
-		});
-
-
-	m_imguiManager->SetSaveSceneCallback([this]() {
-		(void)m_sceneManager.SaveScene();
-		});
-
-	m_imguiManager->SetSaveSceneAsCallback([this](const std::string& path) {
-		m_sceneManager.SaveSceneAs(path);
-
-		// Update project's last opened scene
-		if (m_projectManager.HasOpenProject()) {
-			Project* proj = m_projectManager.GetProject();
-			std::filesystem::path p(path);
-			proj->lastOpenedScene = p.stem().string();
-			m_projectManager.SaveProject();
-		}
-		});
+    auto rememberScene = [this]() {
+        if (auto* project = m_projectManager.GetProject()) {
+            project->lastOpenedScene = std::filesystem::path(m_sceneManager.GetScenePath()).stem().string();
+            if (!m_projectManager.SaveProject())
+                MessageBoxA(m_window.GetHandle(), "Scene saved/opened, but project settings could not be saved.", "Project save failed", MB_OK | MB_ICONERROR);
+        }
+    };
+    m_imguiManager->SetOpenSceneCallback([this, rememberScene](const std::string& path) {
+        if (!m_sceneManager.LoadScene(path)) {
+            MessageBoxA(m_window.GetHandle(), "The scene or one of its assets could not be loaded. Your current scene was kept.", "Open scene failed", MB_OK | MB_ICONERROR);
+            return;
+        }
+        FrameScene();
+        if (m_projectManager.HasOpenProject()) {
+            auto destination = m_projectManager.GetFullScenePath(std::filesystem::path(path).stem().string());
+            std::error_code error;
+            if (!std::filesystem::equivalent(path, destination, error)) {
+                // External scenes become project scenes on their next save.
+                m_sceneManager.GetScene()->filePath.clear();
+                m_sceneManager.GetScene()->MarkDirty();
+                m_imguiManager->RequestSceneSave();
+                return;
+            }
+            rememberScene();
+        }
+    });
+    m_imguiManager->SetSaveSceneCallback([this, rememberScene]() {
+        if (m_sceneManager.SaveScene()) rememberScene();
+        else MessageBoxA(m_window.GetHandle(), "The scene could not be saved.", "Save failed", MB_OK | MB_ICONERROR);
+    });
+    m_imguiManager->SetSaveSceneAsCallback([this, rememberScene](const std::string& path) {
+        // Bring externally referenced models into the project before saving.
+        if (auto* project = m_projectManager.GetProject()) {
+            for (auto& object : m_sceneManager.GetScene()->objects) {
+                std::error_code error;
+                auto relative = std::filesystem::relative(object->assetPath, project->GetAssetsPath(), error);
+                if (error || relative.empty() || relative.is_absolute() || *relative.begin() == "..") {
+                    auto imported = m_projectManager.ImportAsset(object->assetPath);
+                    if (imported.empty()) {
+                        MessageBoxA(m_window.GetHandle(), "A model could not be imported into the project. The scene was not saved.", "Import failed", MB_OK | MB_ICONERROR);
+                        return;
+                    }
+                    object->assetPath = m_projectManager.GetFullAssetPath(imported);
+                }
+            }
+        }
+        if (m_sceneManager.SaveSceneAs(path)) rememberScene();
+        else MessageBoxA(m_window.GetHandle(), "The scene could not be saved.", "Save failed", MB_OK | MB_ICONERROR);
+    });
 
 	m_imguiManager->SetFrameSceneCallback([this]() {
 		FrameScene();

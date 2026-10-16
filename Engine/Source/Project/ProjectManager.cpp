@@ -44,7 +44,8 @@ namespace {
 
 } // anonymous namespace
 
-ProjectManager::ProjectManager() {
+ProjectManager::ProjectManager(bool persistRecentProjects)
+    : m_persistRecentProjects(persistRecentProjects) {
     LoadRecentProjects();
 }
 
@@ -641,6 +642,7 @@ void ProjectManager::ScanAssetsFolder() {
 }
 
 void ProjectManager::LoadRecentProjects() {
+    if (!m_persistRecentProjects) return;
     std::string appData = GetAppDataPath();
     std::string recentFile = appData + "/recent_projects.txt";
 
@@ -668,6 +670,7 @@ void ProjectManager::LoadRecentProjects() {
 }
 
 void ProjectManager::SaveRecentProjects() {
+    if (!m_persistRecentProjects) return;
     std::string appData = GetAppDataPath();
 
     try {

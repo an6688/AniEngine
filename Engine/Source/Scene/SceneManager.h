@@ -21,7 +21,7 @@ public:
     void NewScene(const std::string& name = "Untitled");
     bool LoadScene(const std::string& filePath);
     bool SaveScene();
-    bool SaveSceneAs(const std::string& filePath);
+    bool SaveSceneAs(const std::string& filePath, bool updateIdentity = true);
 
     // Object management
     bool AddObjectFromFile(const std::string& glTFPath);
