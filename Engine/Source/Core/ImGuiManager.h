@@ -7,6 +7,7 @@
 #include <vector>
 #include <glm/glm.hpp>
 #include <Project/ProjectManager.h>
+#include "Rendering/ImageProcessor.h"
 
 class RenderDevice;
 class Camera;
@@ -28,6 +29,7 @@ using ShowProjectDialogCallback = std::function<void()>;
 
 // Render settings - SINGLE SOURCE OF TRUTH
 struct RenderSettings {
+    ImageProcessingSettings imageProcessing;
 	bool wireframeMode = false;
     bool directionalShadows = true;
     bool shadowFiltering = true;

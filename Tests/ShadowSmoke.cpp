@@ -35,6 +35,10 @@ int main() {
         Require(textures.Initialize(&device), "Texture initialization failed");
         Renderer renderer;
         Require(renderer.Initialize(&device, &textures), "Renderer/shader initialization failed");
+        ImageProcessor processor;
+        Require(processor.Initialize(&device), "Image processor initialization failed");
+        ImageProcessingSettings processing;
+        processing.mode = ImageProcessingSettings::Grayscale;
         RenderSettings settings;
         renderer.SetRenderSettings(&settings);
         ImGuiManager ui;
@@ -101,6 +105,7 @@ int main() {
         Require(SUCCEEDED(device.GetDevice()->CreateCommittedResource(&readHeap, D3D12_HEAP_FLAG_NONE,
             &readDesc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&readback))), "Readback allocation failed");
         auto render = [&]() {
+            Require(processor.Prepare(device.GetWidth(), device.GetHeight()), "Image processing resize failed");
             device.cpuFrameStart = ProfileNowMs();
             device.cpuRecordStart = device.cpuFrameStart;
             device.BeginFrame();
@@ -126,13 +131,15 @@ int main() {
             barrier = CD3DX12_RESOURCE_BARRIER::Transition(color.Get(),
                 D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET);
             commands->ResourceBarrier(1, &barrier);
+            processor.Process(device.GetCurrentColorTarget(), device.GetCurrentColorRTV(), processing);
             device.BindMainRenderTargets();
+            device.Timestamp(3);
             ui.BeginFrame();
             ImGui::Begin("Smoke test");
             ImGui::TextUnformatted("Font upload and rendering");
             ImGui::End();
             ui.Render();
-            device.Timestamp(3);
+            device.Timestamp(4);
             device.EndFrame();
             device.WaitForGPU();
             void* mapped = nullptr;
@@ -211,6 +218,7 @@ int main() {
             }
             Require(errors==0, "D3D12 validation reported errors");
         } else std::puts("D3D12 debug layer unavailable; validation messages not checked");
+        processor.Shutdown();
         ui.Shutdown();
         renderer.Shutdown();
         textures.Shutdown();

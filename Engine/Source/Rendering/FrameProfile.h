@@ -7,7 +7,7 @@
 #include <string>
 struct FrameSample {
     double frameMs = 0, updateMs = 0, recordMs = 0, presentMs = 0, fenceMs = 0;
-    std::array<double, 3> gpuMs{};
+    std::array<double, 4> gpuMs{};
     unsigned shadowDraws = 0, sceneDraws = 0;
 };
 inline double ProfileNowMs() {

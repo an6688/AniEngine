@@ -9,6 +9,7 @@
 #include "Rendering/Material.h"
 #include "Rendering/ModelLoader.h"
 #include "Rendering/Renderer.h"
+#include "Rendering/ImageProcessor.h"
 #include "ImGuiManager.h"
 #include "Scene/SceneManager.h"
 #include "Project/ProjectManager.h"
@@ -51,6 +52,7 @@ private:
     ImGuiManager* m_imguiManager;
     SceneManager m_sceneManager;
     RenderSettings m_renderSettings;
+    ImageProcessor m_imageProcessor;
     ProjectManager m_projectManager;
     ProjectDialog m_projectDialog;
 

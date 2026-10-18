@@ -91,6 +91,10 @@ bool Application::Initialize()
 	m_renderer = new Renderer();
 	if (!m_renderer->Initialize(m_renderDevice, m_textureManager))
 		return false;
+    if (!m_imageProcessor.Initialize(m_renderDevice)) {
+        MessageBoxA(m_window.GetHandle(), "Image-processing shaders could not be initialized.", "Initialization failed", MB_OK | MB_ICONERROR);
+        return false;
+    }
 	m_renderer->SetRenderSettings(&m_renderSettings);
 
 	m_camera = new Camera();
@@ -334,6 +338,8 @@ void Application::Run()
 
 void Application::Shutdown()
 {
+    if (m_renderDevice) m_renderDevice->WaitForGPU();
+    m_imageProcessor.Shutdown();
 	m_sceneManager.Shutdown();
 
 	if (m_renderer)
@@ -521,6 +527,11 @@ void Application::UpdateCameraInput()
 }
 
 void Application::Render() {
+    if (m_renderSettings.imageProcessing.mode != ImageProcessingSettings::Original &&
+        !m_imageProcessor.Prepare(m_renderDevice->GetWidth(), m_renderDevice->GetHeight())) {
+        m_renderSettings.imageProcessing.mode = ImageProcessingSettings::Original;
+        MessageBoxA(m_window.GetHandle(), "Image-processing resources could not be allocated. Showing original scene.", "Image processing", MB_OK | MB_ICONERROR);
+    }
     m_renderDevice->cpuRecordStart = ProfileNowMs();
 	m_renderDevice->SetClearColor(
 		m_renderSettings.backgroundColor[0],
@@ -556,8 +567,11 @@ void Application::Render() {
 
 	m_renderer->EndFrame();
 	m_renderDevice->Timestamp(2);
+    m_imageProcessor.Process(m_renderDevice->GetCurrentColorTarget(), m_renderDevice->GetCurrentColorRTV(), m_renderSettings.imageProcessing);
+    m_renderDevice->BindMainRenderTargets();
+    m_renderDevice->Timestamp(3);
 	m_imguiManager->Render();
-	m_renderDevice->Timestamp(3);
+	m_renderDevice->Timestamp(4);
 	m_renderDevice->EndFrame();
 }
 

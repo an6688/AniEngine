@@ -129,9 +129,9 @@ void RenderDevice::EndFrame() {
     sample.recordMs = cpuRecordStart ? ProfileNowMs() - cpuRecordStart : 0;
     sample.shadowDraws = shadowDraws;
     sample.sceneDraws = sceneDraws;
-    if (m_timestampHeap && m_timestampMask == 15) {
+    if (m_timestampHeap && m_timestampMask == (1u << TimestampCount) - 1) {
         m_commandList->ResolveQueryData(m_timestampHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP,
-            submittedSlot * 4, 4, m_timestampReadback.Get(), submittedSlot * 4 * sizeof(UINT64));
+            submittedSlot * TimestampCount, TimestampCount, m_timestampReadback.Get(), submittedSlot * TimestampCount * sizeof(UINT64));
     }
     CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
         m_renderTargets[m_frameIndex].Get(),
@@ -174,7 +174,7 @@ void RenderDevice::EndFrame() {
     MoveToNextFrame();
     sample.fenceMs = ProfileNowMs() - fenceStart;
     sample.frameMs = cpuFrameStart ? ProfileNowMs() - cpuFrameStart : 0;
-    if (m_timestampHeap && m_timestampMask == 15) {
+    if (m_timestampHeap && m_timestampMask == (1u << TimestampCount) - 1) {
         m_profileSamples[submittedSlot] = sample;
         m_profileGeneration[submittedSlot] = profile.generation;
         m_profileFence[submittedSlot] = submittedFence;
@@ -562,29 +562,29 @@ void RenderDevice::InitializeTimings() {
     if (FAILED(m_commandQueue->GetTimestampFrequency(&m_timestampFrequency)) || !m_timestampFrequency) return;
     D3D12_QUERY_HEAP_DESC desc = {};
     desc.Type = D3D12_QUERY_HEAP_TYPE_TIMESTAMP;
-    desc.Count = FrameBufferCount * 4;
+    desc.Count = FrameBufferCount * TimestampCount;
     if (FAILED(m_device->CreateQueryHeap(&desc, IID_PPV_ARGS(&m_timestampHeap)))) return;
     auto heap = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_READBACK);
-    auto buffer = CD3DX12_RESOURCE_DESC::Buffer(FrameBufferCount * 4 * sizeof(UINT64));
+    auto buffer = CD3DX12_RESOURCE_DESC::Buffer(FrameBufferCount * TimestampCount * sizeof(UINT64));
     if (FAILED(m_device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &buffer,
         D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&m_timestampReadback)))) m_timestampHeap.Reset();
 }
 void RenderDevice::Timestamp(UINT boundary) {
-    if (!m_timestampHeap || boundary >= 4) return;
-    m_commandList->EndQuery(m_timestampHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, m_frameIndex * 4 + boundary);
+    if (!m_timestampHeap || boundary >= TimestampCount) return;
+    m_commandList->EndQuery(m_timestampHeap.Get(), D3D12_QUERY_TYPE_TIMESTAMP, m_frameIndex * TimestampCount + boundary);
     m_timestampMask |= 1u << boundary;
 }
 void RenderDevice::CollectTimings() {
     if (!m_timestampHeap || !m_profileFence[m_frameIndex] ||
         m_fence->GetCompletedValue() < m_profileFence[m_frameIndex]) return;
-    const SIZE_T offset = m_frameIndex * 4 * sizeof(UINT64);
-    D3D12_RANGE range{offset, offset + 4 * sizeof(UINT64)};
+    const SIZE_T offset = m_frameIndex * TimestampCount * sizeof(UINT64);
+    D3D12_RANGE range{offset, offset + TimestampCount * sizeof(UINT64)};
     void* mapped = nullptr;
     if (FAILED(m_timestampReadback->Map(0, &range, &mapped))) return;
     const auto* ticks = reinterpret_cast<const UINT64*>(static_cast<const char*>(mapped) + offset);
     auto sample = m_profileSamples[m_frameIndex];
     bool valid = true;
-    for (UINT i = 0; i < 3; ++i) {
+    for (UINT i = 0; i < TimestampCount - 1; ++i) {
         valid = valid && ticks[i + 1] >= ticks[i];
         sample.gpuMs[i] = double(ticks[i + 1] - ticks[i]) * 1000.0 / double(m_timestampFrequency);
     }

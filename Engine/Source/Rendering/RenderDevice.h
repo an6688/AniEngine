@@ -12,6 +12,7 @@
 class RenderDevice {
 public:
     static const UINT FrameBufferCount = 2;
+    static constexpr UINT TimestampCount = 5;
 
     RenderDevice();
     ~RenderDevice();
@@ -34,6 +35,12 @@ public:
     void BeginFrame();
     void EndFrame();
     void BindMainRenderTargets();
+    ID3D12Resource* GetCurrentColorTarget() const { return m_renderTargets[m_frameIndex].Get(); }
+    D3D12_CPU_DESCRIPTOR_HANDLE GetCurrentColorRTV() const {
+        auto handle = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+        handle.ptr += SIZE_T(m_frameIndex) * m_rtvDescriptorSize;
+        return handle;
+    }
     UINT GetFrameIndex() const { return m_frameIndex; }
 
     void WaitForGPU();

@@ -1112,7 +1112,11 @@ void ImGuiManager::DrawStatsPanel(const Timer* timer, const Camera* camera, cons
                 ";vsync=" + std::to_string(m_device->vsync) + ";tearing_supported=" + std::to_string(m_device->SupportsTearing()) +
                 ";tearing_enabled=" + std::to_string(!m_device->vsync && m_device->SupportsTearing()) + ";shadows=" + std::to_string(settings.directionalShadows) +
                 ";pcf=" + std::to_string(settings.shadowFiltering) + ";depth_bias=" + std::to_string(settings.shadowBias) +
-                ";slope_bias=" + std::to_string(settings.shadowSlopeBias);
+                ";slope_bias=" + std::to_string(settings.shadowSlopeBias) +
+                ";image_mode=" + std::to_string(settings.imageProcessing.mode) +
+                ";edge_strength=" + std::to_string(settings.imageProcessing.strength) +
+                ";compare=" + std::to_string(settings.imageProcessing.compare) +
+                ";split=" + std::to_string(settings.imageProcessing.split);
             if (camera) {
                 auto position = camera->GetPosition(); auto target = camera->GetTarget();
                 profile.context += ";camera=" + std::to_string(position.x) + "/" + std::to_string(position.y) + "/" + std::to_string(position.z) +
@@ -1147,7 +1151,8 @@ void ImGuiManager::DrawStatsPanel(const Timer* timer, const Camera* camera, cons
             row("Frame fence", [](const FrameSample& s) { return s.fenceMs; });
             row("GPU shadow", [](const FrameSample& s) { return s.gpuMs[0]; });
             row("GPU scene", [](const FrameSample& s) { return s.gpuMs[1]; });
-            row("GPU UI", [](const FrameSample& s) { return s.gpuMs[2]; });
+            row("GPU image processing", [](const FrameSample& s) { return s.gpuMs[2]; });
+            row("GPU UI", [](const FrameSample& s) { return s.gpuMs[3]; });
             ImGui::EndTable();
         }
         ImGui::TextWrapped("CPU and GPU overlap: do not add their timings. CPU frame includes pacing; these are not input-to-display latency measurements.");
@@ -1161,12 +1166,12 @@ void ImGuiManager::DrawStatsPanel(const Timer* timer, const Camera* camera, cons
             if (GetSaveFileNameA(&dialog)) {
                 std::ofstream file(filename);
                 file << "# " << profile.context << "\n";
-                file << "sample,cpu_frame_ms,cpu_update_ms,cpu_record_ms,present_ms,fence_ms,gpu_shadow_ms,gpu_scene_ms,gpu_ui_ms,shadow_draws,scene_draws\n";
+                file << "sample,cpu_frame_ms,cpu_update_ms,cpu_record_ms,present_ms,fence_ms,gpu_shadow_ms,gpu_scene_ms,gpu_image_processing_ms,gpu_ui_ms,shadow_draws,scene_draws\n";
                 size_t index = 0;
                 for (const auto& sample : profile.samples) {
                     file << index++ << ',' << sample.frameMs << ',' << sample.updateMs << ',' << sample.recordMs << ','
                         << sample.presentMs << ',' << sample.fenceMs << ',' << sample.gpuMs[0] << ',' << sample.gpuMs[1] << ','
-                        << sample.gpuMs[2] << ',' << sample.shadowDraws << ',' << sample.sceneDraws << '\n';
+                        << sample.gpuMs[2] << ',' << sample.gpuMs[3] << ',' << sample.shadowDraws << ',' << sample.sceneDraws << '\n';
                 }
                 file.flush();
                 if (!file) MessageBoxA(m_hwnd, "Could not write capture.", "Export failed", MB_OK | MB_ICONERROR);
@@ -1188,7 +1193,7 @@ void ImGuiManager::DrawStatsPanel(const Timer* timer, const Camera* camera, cons
     ImGui::Text("Mesh buffer payload: %.2f MiB", double(meshBytes) / (1024 * 1024));
     ImGui::Text("Scene texture allocations: %.2f MiB", double(textureBytes) / (1024 * 1024));
     ImGui::Text("Main SRV slots allocated: %u / 1024", m_device->GetUsedDescriptors());
-    ImGui::TextWrapped("Memory figures exclude render targets, shadow map, upload buffers, UI and driver allocations.");
+    ImGui::TextWrapped("Memory figures exclude render targets, shadow map, processing texture, upload buffers, UI and driver allocations.");
     ImGui::Separator();
 
     ImGui::Text("Scene");
@@ -1570,6 +1575,28 @@ void ImGuiManager::DrawRenderSettingsPanel(RenderSettings& settings) {
     if (settings.showShadowMap && m_shadowPreview.ptr) {
         const float size = glm::clamp(ImGui::GetContentRegionAvail().x, 64.0f, 384.0f);
         ImGui::Image((ImTextureID)m_shadowPreview.ptr, ImVec2(size, size));
+    }
+    ImGui::Spacing();
+    ImGui::Text("Image Processing");
+    ImGui::Separator();
+    auto& processing = settings.imageProcessing;
+    bool changed = ImGui::Combo("View", &processing.mode, "Original\0Grayscale\0Sobel edges\0");
+    if (processing.mode == ImageProcessingSettings::Sobel) {
+        changed |= ImGui::SliderFloat("Edge strength", &processing.strength, 0.0f, 8.0f, "%.2f");
+        ImGui::TextWrapped("Bright pixels mark sharp brightness changes. Texture and shadow boundaries count too; this does not recognize objects.");
+    }
+    if (processing.mode != ImageProcessingSettings::Original) {
+        changed |= ImGui::Checkbox("Compare with original", &processing.compare);
+        if (processing.compare) {
+            changed |= ImGui::SliderFloat("Split position", &processing.split, 0.0f, 1.0f, "%.2f");
+            ImGui::TextWrapped("Left: original. Right: processed. Move the split across the same scene.");
+        }
+        ImGui::TextWrapped("Only scene pixels are processed; editor controls and gizmos stay unchanged.");
+    }
+    if (changed) {
+        m_device->profile.capturing = false;
+        m_device->profile.samples.clear();
+        ++m_device->profile.generation;
     }
     ImGui::Spacing();
     ImGui::Text("Background");
